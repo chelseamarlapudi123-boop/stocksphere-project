@@ -1,0 +1,38 @@
+{
+  "users": [
+    {
+      "_id": "u_1773988488574_id85v",
+      "name": "chelsea",
+      "email": "chelsea@gmail.com",
+      "password": "$2b$10$KuyiFsYUaB9lXFDGYzq2h.9IazV379PYfRI5uU33O1IcTVyCRjHwe",
+      "role": "admin",
+      "status": "active"
+    },
+    {
+      "_id": "u_1773988592315_lyua5",
+      "name": "nowshen",
+      "email": "nowshen@gmail.com",
+      "password": "$2b$10$hRXzfcPoGmA4F5skDYIA/uZhLxZWqx9pTJu1GsIbGbXayo1P.LPjG",
+      "role": "admin",
+      "status": "active"
+    },
+    {
+      "_id": "u_1773988636221_anhhr",
+      "name": "sravya",
+      "email": "sravya@gmail.com",
+      "password": "$2b$10$BTEnwMwWSX3H9CZmqIgreezoParRNPwp9IwNfdYi1vLEl3DPxYYmO",
+      "role": "manager",
+      "branchId": "b3",
+      "status": "active"
+    },
+    {
+      "_id": "u_1773988737840_r2xkp",
+      "name": "neha",
+      "email": "neha@gmail.com",
+      "password": "$2b$10$ehLGDdiVkf4n8rJFlmtsjOaUdsGsV3/5pypikYFwnNFUD7rol4S0W",
+      "role": "manager",
+      "branchId": "b2",
+      "status": "active"
+    }
+  ]
+}

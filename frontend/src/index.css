@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #6366f1;
+  --color-primary-foreground: #ffffff;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.glass {
+  background: rgba(18, 24, 33, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 10px 30px -15px rgba(0, 0, 0, 0.5);
+}
+
+.card-hover {
+  transition: transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.card-hover:hover {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 25px 50px -12px rgb(129 140 248 / 0.25);
+  border-color: rgba(165, 243, 252, 0.3);
+}
+
+.neon-glow {
+  box-shadow: 0 0 20px -5px rgb(165 243 252);
+}
+
+.table-row {
+  transition: background-color 0.1s ease;
+}
+
+.table-row:hover {
+  background-color: rgba(165, 243, 252, 0.05) !important;
+}
+
+.status-healthy { background: #22c55e; }
+.status-low { background: #eab308; }
+.status-critical { background: #ef4444; }
+

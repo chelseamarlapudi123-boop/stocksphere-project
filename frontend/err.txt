@@ -1,0 +1,83 @@
+﻿[36mvite v6.4.1 [32mbuilding for production...[36m[39m
+transforming...
+[32mΓ£ô[39m 4 modules transformed.
+node.exe : [31mΓ£ù[39m Build 
+failed in 509ms
+At C:\Program 
+Files\nodejs\npx.ps1:29 char:3
++   & $NODE_EXE $NPX_CLI_JS 
+$args
++   
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          :  
+   NotSpecified: ([31mΓ£ù[3  
+  9m Build failed in 509ms:S   
+ tring) [], RemoteException
+    + FullyQualifiedErrorId :  
+   NativeCommandError
+ 
+[31merror during build:
+[31m[vite:esbuild] Transform 
+failed with 1 error:
+C:/Users/chelsea/OneDrive/Docum
+ents/college/Major Project/agon
+-agent_1-461317af/frontend/src/
+App.jsx:1936:11: ERROR: 
+Expected ";" but found ")"[31m
+file: [36mC:/Users/chelsea/One
+Drive/Documents/college/Major P
+roject/agon-agent_1-461317af/fr
+ontend/src/App.jsx:1936:11[31m
+[33m
+[33mExpected ";" but found 
+")"[33m
+1934|              </div>
+1935|            </div>
+1936|            ))
+   |             ^
+1937|          )}
+1938|        </div>
+[31m
+    at failureErrorWithLog (C:\
+Users\chelsea\OneDrive\Document
+s\college\Major Project\agon-ag
+ent_1-461317af\frontend\node_mo
+dules\esbuild\lib\main.js:1467:
+15)
+    at C:\Users\chelsea\OneDriv
+e\Documents\college\Major Proje
+ct\agon-agent_1-461317af\fronte
+nd\node_modules\esbuild\lib\mai
+n.js:736:50
+    at 
+responseCallbacks.<computed> (C
+:\Users\chelsea\OneDrive\Docume
+nts\college\Major Project\agon-
+agent_1-461317af\frontend\node_
+modules\esbuild\lib\main.js:603
+:9)
+    at handleIncomingPacket (C:
+\Users\chelsea\OneDrive\Documen
+ts\college\Major Project\agon-a
+gent_1-461317af\frontend\node_m
+odules\esbuild\lib\main.js:658:
+12)
+    at Socket.readFromStdout (C
+:\Users\chelsea\OneDrive\Docume
+nts\college\Major Project\agon-
+agent_1-461317af\frontend\node_
+modules\esbuild\lib\main.js:581
+:7)
+    at Socket.emit 
+(node:events:520:28)
+    at addChunk (node:internal/
+streams/readable:559:12)
+    at 
+readableAddChunkPushByteMode (n
+ode:internal/streams/readable:5
+10:3)
+    at Readable.push (node:inte
+rnal/streams/readable:390:5)
+    at Pipe.onStreamRead (node:
+internal/stream_base_commons:19
+1:23)[39m
