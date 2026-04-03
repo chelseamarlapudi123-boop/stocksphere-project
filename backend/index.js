@@ -31,15 +31,16 @@ app.get('/', (req, res) => {
   res.send('StockSphere API is running...');
 });
 
-// ✅ Connect to MongoDB + Start Server
+// ✅ Connect DB FIRST, then start server
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log('✅ Connected to MongoDB');
 
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
   })
   .catch((err) => {
     console.error('❌ MongoDB connection error:', err);
+    process.exit(1); // force crash if DB fails
   });
