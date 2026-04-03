@@ -99,48 +99,45 @@ export const InventoryProvider = ({ children }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const newProduct = await response.json();
-      
-      // If inventory initial data provided
-      if (payload.branchId && payload.quantity !== undefined) {
-        await fetch(`${API_BASE}/inventory`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            productId: newProduct._id,
-            branchId: payload.branchId,
-            quantity: Number(payload.quantity),
-            reorderPoint: Number(payload.reorderPoint) || 10
-          })
-        });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || 'Failed to create product');
       }
-      
+      const newProduct = await response.json();
+      // NOTE: The backend createProduct controller already handles creating the
+      // inventory record when quantity + branchId are in the payload — no
+      // duplicate POST /inventory call needed here.
       await fetchData();
       return newProduct;
     } catch (err) {
       console.error(err);
+      throw err; // Re-throw so the UI handler can show the error toast
     }
   };
 
   const deleteProduct = async (productId) => {
     try {
-      await fetch(`${API_BASE}/products/${productId}`, { method: 'DELETE' });
+      const response = await fetch(`${API_BASE}/products/${productId}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Delete failed');
       await fetchData();
     } catch (err) {
       console.error(err);
+      throw err;
     }
   };
 
   const updateProduct = async (productId, updates) => {
     try {
-      await fetch(`${API_BASE}/products/${productId}`, {
+      const response = await fetch(`${API_BASE}/products/${productId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
       });
+      if (!response.ok) throw new Error('Update failed');
       await fetchData();
     } catch (err) {
       console.error(err);
+      throw err;
     }
   };
 

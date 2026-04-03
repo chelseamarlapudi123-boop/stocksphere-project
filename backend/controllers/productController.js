@@ -25,7 +25,7 @@ export const createProduct = async (req, res) => {
         productId: newProduct._id,
         branchId: targetBranch,
         quantity: Number(quantity),
-        reorderPoint: 10 // Default
+        reorderPoint: Number(req.body.reorderPoint) || 10
       });
       await newInventory.save();
     }
@@ -40,7 +40,24 @@ export const deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
     await Product.findByIdAndDelete(id);
+    // Cascade: remove all inventory records for this product
+    await Inventory.deleteMany({ productId: id });
     res.status(200).json({ message: "Product deleted" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+export const updateProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, category, price, unit } = req.body;
+    const updated = await Product.findByIdAndUpdate(
+      id,
+      { name, category, price, unit },
+      { new: true }
+    );
+    if (!updated) return res.status(404).json({ message: 'Product not found' });
+    res.status(200).json(updated);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

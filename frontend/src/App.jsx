@@ -483,6 +483,7 @@ const InventoryPage = () => {
   const [modalItem, setModalItem] = useState(null);
   const [adjustAmount, setAdjustAmount] = useState(0);
   const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [newProductForm, setNewProductForm] = useState({
     name: '',
     category: '',
@@ -535,39 +536,47 @@ const InventoryPage = () => {
       return valB - valA;
     });
 
-  const handleAdjustStock = () => {
-    if (!modalItem) return;
+  const handleAdjustStock = async () => {
+    if (!modalItem || isSaving) return;
+    setIsSaving(true);
     
     const quantity = editForm.quantity + adjustAmount;
     
-    // Update Product Details
-    updateProduct(modalItem.productId?._id || modalItem.productId, {
-      name: editForm.name.trim(),
-      category: editForm.category.trim(),
-      price: Number(Number(editForm.price).toFixed(2)),
-    });
+    try {
+      // Update Product Details and Inventory record in parallel
+      await Promise.all([
+        updateProduct(modalItem.productId?._id || modalItem.productId, {
+          name: editForm.name.trim(),
+          category: editForm.category.trim(),
+          price: Number(Number(editForm.price).toFixed(2)),
+        }),
+        updateInventoryItem(
+          modalItem.productId?._id || modalItem.productId,
+          modalItem.branchId,
+          editForm.branchId,
+          quantity,
+          Math.floor(editForm.reorderPoint)
+        )
+      ]);
 
-    // Update Inventory record (potentially move branch)
-    updateInventoryItem(
-      modalItem.productId?._id || modalItem.productId,
-      modalItem.branchId,
-      editForm.branchId,
-      quantity,
-      Math.floor(editForm.reorderPoint)
-    );
+      // If stock was reduced via adjustment, record a sale
+      if (adjustAmount < 0) {
+        await addSale(modalItem.productId?._id || modalItem.productId, editForm.branchId, Math.abs(adjustAmount));
+      }
 
-    // If stock was reduced via adjustment, record a sale
-    if (adjustAmount < 0) {
-      addSale(modalItem.productId?._id || modalItem.productId, editForm.branchId, Math.abs(adjustAmount));
+      toast.success(`Updated ${editForm.name}`);
+      setModalItem(null);
+      setAdjustAmount(0);
+    } catch (err) {
+      console.error('Failed to update product:', err);
+      toast.error('Failed to save changes. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
-
-    toast.success(`Updated ${editForm.name}`);
-    setModalItem(null);
-    setAdjustAmount(0);
   };
 
-  const handleDeleteProduct = () => {
-    if (!modalItem) return;
+  const handleDeleteProduct = async () => {
+    if (!modalItem || isSaving) return;
     const productName = editForm.name;
     
     if (!showDeleteConfirm) {
@@ -575,10 +584,18 @@ const InventoryPage = () => {
       return;
     }
 
-    deleteProduct(modalItem.productId?._id || modalItem.productId);
-    toast.success(`${productName} deleted.`);
-    setModalItem(null);
-    setShowDeleteConfirm(false);
+    setIsSaving(true);
+    try {
+      await deleteProduct(modalItem.productId?._id || modalItem.productId);
+      toast.success(`${productName} deleted.`);
+      setModalItem(null);
+      setShowDeleteConfirm(false);
+    } catch (err) {
+      console.error('Failed to delete product:', err);
+      toast.error('Failed to delete product. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const getStatusColor = (qty, reorder) => {
@@ -615,6 +632,7 @@ const InventoryPage = () => {
       return;
     }
 
+    setIsSaving(true);
     try {
       const createdProduct = await addProduct({
         name: normalizedName,
@@ -623,7 +641,6 @@ const InventoryPage = () => {
         unit: 'pcs',
         quantity,
         branchId: newProductForm.branchId,
-        branch: newProductForm.branchId, // Duplicate for compatibility
         reorderPoint
       });
 
@@ -635,6 +652,8 @@ const InventoryPage = () => {
     } catch (error) {
       console.error("Error creating product:", error);
       toast.error("Failed to add product. Please try again.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -771,13 +790,14 @@ const InventoryPage = () => {
                 <div className="text-xl font-semibold">Manage Product</div>
                 <button 
                   onClick={handleDeleteProduct}
-                  className={`text-xs transition-colors uppercase tracking-widest font-mono px-3 py-1.5 rounded-xl border ${
+                  disabled={isSaving}
+                  className={`text-xs transition-colors uppercase tracking-widest font-mono px-3 py-1.5 rounded-xl border disabled:opacity-40 disabled:cursor-not-allowed ${
                     showDeleteConfirm 
                       ? 'bg-rose-500 text-white border-rose-500' 
                       : 'text-rose-400 border-rose-500/20 hover:bg-rose-500/10'
                   }`}
                 >
-                  {showDeleteConfirm ? 'Confirm Delete?' : 'Delete Product'}
+                  {showDeleteConfirm ? (isSaving ? 'Deleting...' : 'Confirm Delete?') : 'Delete Product'}
                 </button>
               </div>
               
@@ -885,15 +905,17 @@ const InventoryPage = () => {
               <div className="flex gap-3">
                 <button
                   onClick={() => setModalItem(null)}
-                  className="flex-1 py-4 border border-white/10 rounded-2xl hover:bg-white/5 transition-colors"
+                  disabled={isSaving}
+                  className="flex-1 py-4 border border-white/10 rounded-2xl hover:bg-white/5 transition-colors disabled:opacity-40"
                 >
                   CANCEL
                 </button>
                 <button
                   onClick={handleAdjustStock}
-                  className="flex-1 py-4 bg-white text-black rounded-2xl font-semibold hover:bg-zinc-200 transition-colors"
+                  disabled={isSaving}
+                  className="flex-1 py-4 bg-white text-black rounded-2xl font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  SAVE CHANGES
+                  {isSaving ? 'SAVING...' : 'SAVE CHANGES'}
                 </button>
               </div>
             </motion.div>
