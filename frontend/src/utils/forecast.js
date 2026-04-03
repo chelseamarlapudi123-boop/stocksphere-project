@@ -1,4 +1,4 @@
-import { subMonths, format } from 'date-fns';
+﻿import { subMonths, format } from 'date-fns';
 
 export function generateForecast(sales, productId, branchId, currentStock = null, monthsAhead = 3) {
   // Filter sales for this product and branch, last 18 months (Relaxed for demo)
@@ -58,7 +58,7 @@ export function generateForecast(sales, productId, branchId, currentStock = null
     const futureDate = subMonths(new Date(), -i);
     const futureMonth = format(futureDate, 'MMM');
     
-    // Add small variation factor (±5%) for realism
+    // Add small variation factor (Â±5%) for realism
     const variation = 1 + (Math.random() * 0.1 - 0.05);
     const predicted = Math.round(forecastValue * variation);
 
@@ -72,3 +72,4 @@ export function generateForecast(sales, productId, branchId, currentStock = null
 
   return result;
 }
+

@@ -12,23 +12,26 @@ export const getProducts = async (req, res) => {
 
 export const createProduct = async (req, res) => {
   try {
-    const { name, category, price, unit, quantity, branchId, branch } = req.body;
+    const { name, category, price, unit, quantity, branchId, branch, status } = req.body;
     
-    // Create the product
-    const newProduct = new Product({ name, category, price, unit: unit || 'pcs' });
+    const newProduct = new Product({
+      name,
+      category,
+      price: Number(price),
+      unit: unit || 'pcs',
+      status: status || 'active'
+    });
     await newProduct.save();
 
-    // If quantity and branch are provided, create initial inventory
-    const targetBranch = branchId || branch;
-    if (targetBranch && quantity !== undefined) {
-      const newInventory = new Inventory({
-        productId: newProduct._id,
-        branchId: targetBranch,
-        quantity: Number(quantity),
-        reorderPoint: Number(req.body.reorderPoint) || 10
-      });
-      await newInventory.save();
-    }
+    // ALWAYs create initial inventory record to stay synced
+    const targetBranch = branchId || branch || 'b1';
+    const newInventory = new Inventory({
+      productId: newProduct._id,
+      branchId: targetBranch,
+      quantity: Number(quantity) || 0,
+      reorderPoint: Number(req.body.reorderPoint) || 10
+    });
+    await newInventory.save();
 
     res.status(201).json(newProduct);
   } catch (error) {
@@ -50,10 +53,18 @@ export const deleteProduct = async (req, res) => {
 export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, category, price, unit } = req.body;
+    const { name, category, price, unit, status } = req.body;
+
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (category !== undefined) updates.category = category;
+    if (price !== undefined) updates.price = Number(price);
+    if (unit !== undefined) updates.unit = unit;
+    if (status !== undefined) updates.status = status;
+
     const updated = await Product.findByIdAndUpdate(
       id,
-      { name, category, price, unit },
+      updates,
       { new: true }
     );
     if (!updated) return res.status(404).json({ message: 'Product not found' });

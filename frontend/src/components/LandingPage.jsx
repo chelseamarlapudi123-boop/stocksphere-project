@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { motion } from 'framer-motion';
 import { Package, Shield, TrendingUp, Zap, BarChart3, Globe, ChevronRight, CheckCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -105,7 +105,7 @@ const LandingPage = () => {
 
             <p className="text-xl text-zinc-400 max-w-2xl mx-auto mb-12 leading-relaxed">
               The next-generation inventory management platform for multi-branch enterprises.
-              Real-time sync, AI forecasting, and seamless control — in one beautiful interface.
+              Real-time sync, AI forecasting, and seamless control - in one beautiful interface.
             </p>
 
             <div className="flex justify-center gap-4 flex-wrap">
@@ -296,3 +296,4 @@ const LandingPage = () => {
 };
 
 export default LandingPage;
+

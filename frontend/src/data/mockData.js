@@ -1,4 +1,4 @@
-export const branches = [
+﻿export const branches = [
   { id: 'b1', name: 'Harbor City', location: 'Navi Mumbai, MH' },
   { id: 'b2', name: 'Uptown Nexus', location: 'Bandra, Mumbai' },
   { id: 'b3', name: 'Valley View', location: 'Pune, MH' },
@@ -40,3 +40,4 @@ export const initialUsers = [
   { _id: 'u3', name: 'Sravya', email: 'sravya@stocksphere.com', role: 'manager', branchId: 'b2', status: 'active' },
   { _id: 'u4', name: 'Neha', email: 'neha@stocksphere.com', role: 'manager', branchId: 'b3', status: 'active' }
 ];
+

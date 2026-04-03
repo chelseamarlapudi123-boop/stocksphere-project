@@ -3,6 +3,7 @@ import { getSalesHistory, createSale } from '../controllers/salesController.js';
 
 const router = express.Router();
 
+router.get('/', getSalesHistory);
 router.get('/history', getSalesHistory);
 router.post('/', createSale);
 

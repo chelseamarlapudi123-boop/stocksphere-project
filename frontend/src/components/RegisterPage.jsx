@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Package, CheckCircle, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/useAuth';
@@ -120,7 +120,7 @@ const RegisterPage = () => {
           {step === 1 ? (
             <>
               <h2 className="text-2xl font-semibold mb-1">Create your account</h2>
-              <p className="text-zinc-500 text-sm mb-8">Step 1 of 2 — Your details</p>
+              <p className="text-zinc-500 text-sm mb-8">Step 1 of 2 - Your details</p>
 
               <div className="space-y-5">
                 <div>
@@ -179,7 +179,7 @@ const RegisterPage = () => {
           ) : (
             <>
               <h2 className="text-2xl font-semibold mb-1">Configure access</h2>
-              <p className="text-zinc-500 text-sm mb-8">Step 2 of 2 — Your role</p>
+              <p className="text-zinc-500 text-sm mb-8">Step 2 of 2 - Your role</p>
 
               <div className="space-y-5">
                 <div>
@@ -218,7 +218,7 @@ const RegisterPage = () => {
                       className="w-full bg-zinc-800 border border-white/10 rounded-2xl px-5 py-4 text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors"
                     >
                       {branches.map(b => (
-                        <option key={b.id} value={b.id}>{b.name} — {b.location}</option>
+                        <option key={b.id} value={b.id}>{b.name} - {b.location}</option>
                       ))}
                     </select>
                   </motion.div>
@@ -270,3 +270,4 @@ const RegisterPage = () => {
 };
 
 export default RegisterPage;
+

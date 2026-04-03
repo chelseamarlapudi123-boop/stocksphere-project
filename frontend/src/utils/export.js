@@ -1,4 +1,4 @@
-export function exportToCSV(data, filename) {
+﻿export function exportToCSV(data, filename) {
   if (data.length === 0) return;
 
   const headers = Object.keys(data[0]);
@@ -25,12 +25,13 @@ export function exportToCSV(data, filename) {
 
 export function generateInventoryReport(inventory, products, branches, branchId = null) {
   let filteredInventory = inventory;
-  if (branchId) {
+  if (branchId && branchId !== 'all') {
     filteredInventory = inventory.filter(item => item.branchId === branchId);
   }
 
   return filteredInventory.map(item => {
-    const product = products.find(p => p.id === item.productId);
+    const itemProductId = item.productId?._id || item.productId;
+    const product = products.find(p => (p._id || p.id) === itemProductId);
     const branch = branches.find(b => b.id === item.branchId);
     return {
       Branch: branch?.name || '',
@@ -95,3 +96,4 @@ export function downloadPortfolioCSV(branchData, filename) {
   link.click();
   URL.revokeObjectURL(url);
 }
+

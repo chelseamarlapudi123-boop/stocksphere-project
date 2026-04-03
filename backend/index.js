@@ -1,9 +1,8 @@
-import express from 'express';
+﻿import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 
-// 🔥 Global error handlers (to catch crashes in Render logs)
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err);
 });
@@ -18,47 +17,59 @@ import authRoute from './routes/auth.js';
 import productsRoute from './routes/products.js';
 import inventoryRoute from './routes/inventory.js';
 import salesRoute from './routes/sales.js';
+import branchesRoute from './routes/branches.js';
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = 5000;
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/nexusstock';
 
-// Middleware
-app.use(cors());
+const allowedOrigins = new Set([
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173'
+]);
+
+const corsOptions = {
+  origin(origin, callback) {
+    // Allow localhost frontends and non-browser requests (no Origin header).
+    if (!origin || allowedOrigins.has(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('CORS blocked: only localhost origins are allowed.'));
+  }
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
+app.use((req, res, next) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  next();
+});
 
-// API Routes
 app.use('/api/reports', reportsRoute);
 app.use('/api/users', usersRoute);
 app.use('/api/auth', authRoute);
 app.use('/api/products', productsRoute);
 app.use('/api/inventory', inventoryRoute);
 app.use('/api/sales', salesRoute);
+app.use('/api/branches', branchesRoute);
 
-// Health route (VERY important for Render)
 app.get('/', (req, res) => {
-  res.send('StockSphere API is running...');
+  res.type('text/plain; charset=utf-8').send('StockSphere API is running...');
 });
 
-// ✅ Connect DB FIRST, then start server
-mongoose.connect(process.env.MONGO_URI)
+mongoose.connect(MONGO_URI, { dbName: 'nexusstock' })
   .then(() => {
-    console.log('✅ Connected to MongoDB');
-
-    // 🔥 IMPORTANT: bind to 0.0.0.0 for Render
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`🚀 Server running on port ${PORT}`);
+    console.log('Connected to local MongoDB');
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
     });
   })
   .catch((err) => {
-    console.error('❌ MongoDB connection error:', err.message);
-
-    // ❌ Do NOT crash immediately (for debugging)
-    // process.exit(1);
-
-    // Instead still start server to debug
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`⚠️ Server running WITHOUT DB on port ${PORT}`);
-    });
+    console.error('MongoDB connection error:', err.message);
+    process.exit(1);
   });
+

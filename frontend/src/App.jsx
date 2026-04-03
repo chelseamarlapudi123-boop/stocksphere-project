@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -13,19 +13,18 @@ import { AuthProvider } from './contexts/AuthContext';
 import { InventoryProvider } from './contexts/InventoryContext';
 import { useAuth } from './contexts/useAuth';
 import { useInventory } from './contexts/useInventory';
-import API from './utils/api';
 
-import { generateForecast } from './utils/forecast';
-import { exportToCSV, generateInventoryReport, downloadPortfolioCSV } from './utils/export';
-import { branches as mockBranches, products as mockProducts, initialInventory, initialUsers } from './data/mockData';
+import { exportToCSV, downloadPortfolioCSV } from './utils/export';
+import API from './utils/api';
+import { formatCurrency } from './utils/formatters';
 import LandingPage from './components/LandingPage';
 import LoginPage from './components/LoginPage';
 import RegisterPage from './components/RegisterPage';
 
-
+// API_BASE removed for mock-only mode
 
 // Helper: format numbers using the Indian lakh-crore system
-// e.g. 458000 → "4,58,000" | 92000 → "92,000"
+// e.g. 458000 -> "4,58,000" | 92000 -> "92,000"
 const toIndianFormat = (num) => {
   const n = Math.floor(num);
   const s = String(n);
@@ -38,7 +37,7 @@ const toIndianFormat = (num) => {
 
 const Navbar = () => {
   const { currentUser, logout } = useAuth();
-  const { simulateDay } = useInventory();
+  const { refreshData } = useInventory();
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -47,8 +46,11 @@ const Navbar = () => {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    // Simulate fetching delay
-    await new Promise(r => setTimeout(r, 1000));
+    try {
+      await refreshData();
+    } catch (err) {
+      console.error(err);
+    }
     setIsRefreshing(false);
     toast.success("Data refreshed successfully", {
       description: "Latest dashboard metrics have been synced",
@@ -107,7 +109,7 @@ const Navbar = () => {
               className="w-10 h-10 flex items-center justify-center rounded-2xl hover:bg-white/5 relative"
             >
               <div className="relative">
-                <div>🛎️</div>
+                <AlertTriangle className="w-4 h-4 text-zinc-300" />
                 <div className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-rose-500 flex items-center justify-center">
                   <div className="text-[8px] text-white font-mono">3</div>
                 </div>
@@ -143,7 +145,7 @@ const Navbar = () => {
               onClick={() => setShowUserMenu(!showUserMenu)}
               className="w-9 h-9 rounded-2xl bg-gradient-to-br from-zinc-700 to-zinc-800 flex items-center justify-center text-lg cursor-pointer border border-white/20 hover:border-white/50"
             >
-              👤
+              <Users className="w-5 h-5 text-zinc-300" />
             </div>
 
             <AnimatePresence>
@@ -261,17 +263,40 @@ const Dashboard = () => {
   const { currentUser } = useAuth();
   const { inventory, products, branches, sales } = useInventory();
   const navigate = useNavigate();
+  const [dashboardStats, setDashboardStats] = useState(null);
+  const isManager = currentUser?.role === 'manager';
+  const dashboardBranchId = isManager ? currentUser?.branchId : 'all';
+
+  useEffect(() => {
+    const fetchDashboardStats = async () => {
+      try {
+        const params = new URLSearchParams();
+        if (dashboardBranchId && dashboardBranchId !== 'all') {
+          params.set('branchId', dashboardBranchId);
+        }
+        const query = params.toString();
+        const response = await fetch(`${API}/api/reports/dashboard${query ? `?${query}` : ''}`);
+        if (!response.ok) throw new Error('Failed to fetch dashboard stats');
+        const payload = await response.json();
+        setDashboardStats(payload?.data || null);
+      } catch (error) {
+        console.error('Dashboard stats error:', error);
+        setDashboardStats(null);
+      }
+    };
+
+    fetchDashboardStats();
+  }, [dashboardBranchId, inventory.length, products.length, branches.length, sales.length]);
 
   const totalValue = inventory.reduce((sum, item) => {
-    const product = products.find(p => (p._id || p.id) === item.productId);
-    return sum + (product?.price || 0) * item.quantity;
+    const product = products.find(p => (p._id || p.id) === (item.productId?._id || item.productId));
+    return sum + (product?.price || 0) * (item.quantity || 0);
   }, 0);
 
-  const totalStock = inventory.reduce((sum, item) => sum + item.quantity, 0);
+  const totalStock = inventory.reduce((sum, item) => sum + (item.quantity || 0), 0);
   const totalSalesRevenue = sales?.reduce((sum, sale) => sum + (sale.revenue || 0), 0) || 0;
-  const lowStockCount = inventory.filter(item => item.quantity < item.reorderPoint).length;
+  const lowStockCount = inventory.filter(item => (item.quantity || 0) < (item.reorderPoint || 0)).length;
 
-  // Real Sales trend last 6 months
   const last6Months = Array.from({ length: 6 }, (_, i) => {
     const d = new Date();
     d.setMonth(d.getMonth() - i);
@@ -295,10 +320,10 @@ const Dashboard = () => {
 
   const branchStatus = branches.map(branch => {
     const branchInv = inventory.filter(i => i.branchId === branch.id);
-    const lowInBranch = branchInv.filter(i => i.quantity < i.reorderPoint).length;
+    const lowInBranch = branchInv.filter(i => (i.quantity || 0) < (i.reorderPoint || 0)).length;
     const stockValue = branchInv.reduce((sum, item) => {
-      const prod = products.find(p => (p._id || p.id) === item.productId);
-      return sum + (prod?.price || 0) * item.quantity;
+      const prod = products.find(p => (p._id || p.id) === (item.productId?._id || item.productId));
+      return sum + (prod?.price || 0) * (item.quantity || 0);
     }, 0);
 
     return {
@@ -306,7 +331,7 @@ const Dashboard = () => {
       stockValue: Math.round(stockValue),
       lowItems: lowInBranch,
       totalItems: branchInv.length,
-      health: lowInBranch > 2 ? 'critical' : lowInBranch > 0 ? 'warning' : 'good'
+      health: lowInBranch > 0 ? 'warning' : 'good'
     };
   });
 
@@ -314,10 +339,10 @@ const Dashboard = () => {
   const categoryData = categories.map((cat, idx) => {
     const catProducts = products.filter(p => p.category === cat);
     const catValue = inventory
-      .filter(item => catProducts.some(p => (p._id || p.id) === item.productId))
+      .filter(item => catProducts.some(p => (p._id || p.id) === (item.productId?._id || item.productId)))
       .reduce((sum, item) => {
-        const prod = catProducts.find(p => (p._id || p.id) === item.productId);
-        return sum + (prod?.price || 0) * item.quantity;
+        const prod = catProducts.find(p => (p._id || p.id) === (item.productId?._id || item.productId));
+        return sum + (prod?.price || 0) * (item.quantity || 0);
       }, 0);
 
     const colors = ['#6366f1', '#22c55e', '#eab308', '#a855f7', '#f43f5e', '#06b6d4'];
@@ -334,44 +359,57 @@ const Dashboard = () => {
     percentage: totalCatValue > 0 ? Math.round((c.value / totalCatValue) * 100) : 0
   }));
 
+  const kpis = dashboardStats?.kpis || {
+    activeProducts: products.length,
+    overallStock: totalStock,
+    inventoryValue: Math.round(totalValue),
+    totalSales: Math.round(totalSalesRevenue),
+    lowStockAlerts: lowStockCount
+  };
+
+  const dashboardSalesTrend = dashboardStats?.salesTrend || salesTrend;
+  const dashboardCategoryData = (dashboardStats?.categoryDistribution || categoryPercentageData).map((cat, idx) => ({
+    ...cat,
+    fill: cat.fill || ['#6366f1', '#22c55e', '#eab308', '#a855f7', '#f43f5e', '#06b6d4'][idx % 6]
+  }));
+  const dashboardBranchStatus = dashboardStats?.branchPerformance || branchStatus;
+
   return (
     <div className="p-8 pt-20 max-w-screen-2xl mx-auto">
-      {/* KPI ROW */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-10">
         <KPICard
           title="ACTIVE PRODUCTS"
-          value={products.length}
+          value={kpis.activeProducts}
           icon={<BarChart3 className="w-6 h-6 text-amber-400" />}
           accent="amber"
         />
         <KPICard
           title="OVERALL STOCK"
-          value={totalStock.toLocaleString()}
+          value={kpis.overallStock.toLocaleString()}
           icon={<Package className="w-6 h-6 text-indigo-400" />}
           accent="indigo"
         />
         <KPICard
           title="INVENTORY VALUE"
-          value={`₹${Math.floor(totalValue).toLocaleString('en-IN')}`}
+          value={formatCurrency(Math.floor(kpis.inventoryValue))}
           icon={<Package className="w-6 h-6 text-emerald-400" />}
           accent="emerald"
         />
         <KPICard
           title="TOTAL SALES"
-          value={`₹${Math.floor(totalSalesRevenue).toLocaleString('en-IN')}`}
+          value={formatCurrency(Math.floor(kpis.totalSales))}
           icon={<TrendingUp className="w-6 h-6 text-emerald-400" />}
           accent="emerald"
         />
         <KPICard
           title="LOW STOCK ALERTS"
-          value={lowStockCount}
+          value={kpis.lowStockAlerts}
           icon={<AlertTriangle className="w-6 h-6 text-rose-400" />}
           accent="rose"
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* SALES TREND */}
         <div className="lg:col-span-8 glass rounded-3xl p-8">
           <div className="flex justify-between mb-6">
             <div>
@@ -380,7 +418,7 @@ const Dashboard = () => {
             </div>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={salesTrend}>
+            <LineChart data={dashboardSalesTrend}>
               <CartesianGrid strokeDasharray="2 2" stroke="#27272a" />
               <XAxis dataKey="month" stroke="#52525b" />
               <YAxis stroke="#52525b" />
@@ -390,48 +428,46 @@ const Dashboard = () => {
           </ResponsiveContainer>
         </div>
 
-        {/* CATEGORY DISTRIBUTION */}
         <div className="lg:col-span-4 glass rounded-3xl p-8 flex flex-col">
           <div className="font-semibold text-xl mb-6">Category Distribution</div>
           <div className="flex-1">
             <ResponsiveContainer width="100%" height={260}>
               <PieChart>
                 <Pie
-                  data={categoryPercentageData}
+                  data={dashboardCategoryData}
                   cx="50%"
                   cy="48%"
                   innerRadius={78}
                   outerRadius={110}
                   dataKey="value"
                 >
-                  {categoryPercentageData.map((entry, index) => (
+                  {dashboardCategoryData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.fill} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value) => `₹${Number(value).toLocaleString('en-IN')}`} />
+                <Tooltip formatter={(value) => formatCurrency(Number(value))} />
               </PieChart>
             </ResponsiveContainer>
           </div>
           <div className="grid grid-cols-2 gap-3 text-sm">
-            {categoryPercentageData.map((cat, idx) => (
+            {dashboardCategoryData.map((cat, idx) => (
               <div key={idx} className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full" style={{ background: cat.fill }}></div>
                 <span className="truncate max-w-[80px]">{cat.name}</span>
-                <span className="ml-auto text-zinc-400">{cat.percentage}%</span>
+                <span className="ml-auto text-zinc-400">{cat.percentage || 0}%</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* BRANCH STATUS */}
         <div className="lg:col-span-12 mt-2">
           <div className="text-xl font-semibold mb-4 px-1">Branch Performance</div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-            {branchStatus.map((branch, index) => (
+            {dashboardBranchStatus.map((branch, index) => (
               <motion.div
                 key={index}
                 whileHover={{ scale: 1.01 }}
-                onClick={() => navigate('/dashboard/branches', { state: { openBranchId: branch.id, returnTo: '/dashboard' } })}
+                onClick={() => navigate('/dashboard/branches', { state: { openBranchId: branch.id } })}
                 className="glass rounded-3xl p-7 flex flex-col cursor-pointer hover:border-white/30 transition-colors"
               >
                 <div className="flex items-center justify-between">
@@ -439,19 +475,19 @@ const Dashboard = () => {
                     <div className="font-semibold text-xl tracking-tight">{branch.name}</div>
                     <div className="text-sm text-zinc-400">{branch.location}</div>
                   </div>
-                  <div className={`px-4 py-1 text-xs rounded-full font-medium ${branch.health === 'good' ? 'bg-emerald-500/10 text-emerald-400' : branch.health === 'warning' ? 'bg-amber-500/10 text-amber-400' : 'bg-red-500/10 text-red-400'}`}>
-                    {branch.health.toUpperCase()}
+                  <div className={`px-4 py-1 text-xs rounded-full font-medium ${branch.health === 'good' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                    {String(branch.health || 'good').toUpperCase()}
                   </div>
                 </div>
 
                 <div className="mt-auto pt-8 flex justify-between gap-8">
                   <div className="min-w-0">
                     <div className="text-xs text-zinc-400">STOCK VALUE</div>
-                    <div className="font-mono text-3xl font-medium mt-0.5 truncate">₹{toIndianFormat(branch.stockValue)}</div>
+                    <div className="font-mono text-3xl font-medium mt-0.5 truncate">{formatCurrency(branch.stockValue || 0)}</div>
                   </div>
                   <div className="shrink-0 text-right">
                     <div className="text-xs text-zinc-400">LOW STOCK</div>
-                    <div className="font-mono text-3xl font-medium mt-0.5 text-rose-400">{branch.lowItems}</div>
+                    <div className="font-mono text-3xl font-medium mt-0.5 text-rose-400">{branch.lowItems || 0}</div>
                   </div>
                 </div>
               </motion.div>
@@ -483,7 +519,6 @@ const InventoryPage = () => {
   const [modalItem, setModalItem] = useState(null);
   const [adjustAmount, setAdjustAmount] = useState(0);
   const [showAddProductModal, setShowAddProductModal] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [newProductForm, setNewProductForm] = useState({
     name: '',
     category: '',
@@ -536,47 +571,47 @@ const InventoryPage = () => {
       return valB - valA;
     });
 
-  const handleAdjustStock = async () => {
-    if (!modalItem || isSaving) return;
-    setIsSaving(true);
+  const inventorySummary = filteredInventory.reduce((acc, item) => {
+    const product = products.find(p => (p._id || p.id) === (item.productId?._id || item.productId));
+    acc.totalUnits += item.quantity || 0;
+    acc.totalValue += (item.quantity || 0) * (product?.price || 0);
+    if ((item.quantity || 0) < (item.reorderPoint || 0)) acc.lowStock += 1;
+    return acc;
+  }, { totalUnits: 0, totalValue: 0, lowStock: 0 });
+
+  const handleAdjustStock = () => {
+    if (!modalItem) return;
     
     const quantity = editForm.quantity + adjustAmount;
     
-    try {
-      // Update Product Details and Inventory record in parallel
-      await Promise.all([
-        updateProduct(modalItem.productId?._id || modalItem.productId, {
-          name: editForm.name.trim(),
-          category: editForm.category.trim(),
-          price: Number(Number(editForm.price).toFixed(2)),
-        }),
-        updateInventoryItem(
-          modalItem.productId?._id || modalItem.productId,
-          modalItem.branchId,
-          editForm.branchId,
-          quantity,
-          Math.floor(editForm.reorderPoint)
-        )
-      ]);
+    // Update Product Details
+    updateProduct(modalItem.productId?._id || modalItem.productId, {
+      name: editForm.name.trim(),
+      category: editForm.category.trim(),
+      price: Number(Number(editForm.price).toFixed(2)),
+    });
 
-      // If stock was reduced via adjustment, record a sale
-      if (adjustAmount < 0) {
-        await addSale(modalItem.productId?._id || modalItem.productId, editForm.branchId, Math.abs(adjustAmount));
-      }
+    // Update Inventory record (potentially move branch)
+    updateInventoryItem(
+      modalItem.productId?._id || modalItem.productId,
+      modalItem.branchId,
+      editForm.branchId,
+      quantity,
+      Math.floor(editForm.reorderPoint)
+    );
 
-      toast.success(`Updated ${editForm.name}`);
-      setModalItem(null);
-      setAdjustAmount(0);
-    } catch (err) {
-      console.error('Failed to update product:', err);
-      toast.error('Failed to save changes. Please try again.');
-    } finally {
-      setIsSaving(false);
+    // If stock was reduced via adjustment, record a sale
+    if (adjustAmount < 0) {
+      addSale(modalItem.productId?._id || modalItem.productId, editForm.branchId, Math.abs(adjustAmount));
     }
+
+    toast.success(`Updated ${editForm.name}`);
+    setModalItem(null);
+    setAdjustAmount(0);
   };
 
-  const handleDeleteProduct = async () => {
-    if (!modalItem || isSaving) return;
+  const handleDeleteProduct = () => {
+    if (!modalItem) return;
     const productName = editForm.name;
     
     if (!showDeleteConfirm) {
@@ -584,18 +619,10 @@ const InventoryPage = () => {
       return;
     }
 
-    setIsSaving(true);
-    try {
-      await deleteProduct(modalItem.productId?._id || modalItem.productId);
-      toast.success(`${productName} deleted.`);
-      setModalItem(null);
-      setShowDeleteConfirm(false);
-    } catch (err) {
-      console.error('Failed to delete product:', err);
-      toast.error('Failed to delete product. Please try again.');
-    } finally {
-      setIsSaving(false);
-    }
+    deleteProduct(modalItem.productId?._id || modalItem.productId);
+    toast.success(`${productName} deleted.`);
+    setModalItem(null);
+    setShowDeleteConfirm(false);
   };
 
   const getStatusColor = (qty, reorder) => {
@@ -632,7 +659,6 @@ const InventoryPage = () => {
       return;
     }
 
-    setIsSaving(true);
     try {
       const createdProduct = await addProduct({
         name: normalizedName,
@@ -641,6 +667,7 @@ const InventoryPage = () => {
         unit: 'pcs',
         quantity,
         branchId: newProductForm.branchId,
+        branch: newProductForm.branchId, // Duplicate for compatibility
         reorderPoint
       });
 
@@ -652,8 +679,6 @@ const InventoryPage = () => {
     } catch (error) {
       console.error("Error creating product:", error);
       toast.error("Failed to add product. Please try again.");
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -696,6 +721,21 @@ const InventoryPage = () => {
             <Plus className="w-4 h-4" />
             Add Product
           </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="glass rounded-2xl p-5">
+          <div className="text-xs text-zinc-500 uppercase tracking-widest">Visible Products</div>
+          <div className="text-3xl font-light mt-2">{filteredInventory.length}</div>
+        </div>
+        <div className="glass rounded-2xl p-5">
+          <div className="text-xs text-zinc-500 uppercase tracking-widest">Total Units</div>
+          <div className="text-3xl font-light mt-2">{inventorySummary.totalUnits.toLocaleString('en-IN')}</div>
+        </div>
+        <div className="glass rounded-2xl p-5">
+          <div className="text-xs text-zinc-500 uppercase tracking-widest">Inventory Value</div>
+          <div className="text-3xl font-light mt-2">{formatCurrency(Math.round(inventorySummary.totalValue))}</div>
         </div>
       </div>
 
@@ -745,7 +785,7 @@ const InventoryPage = () => {
 
                     <div className="text-right w-28">
                       <div className="text-xs text-zinc-400">VALUE</div>
-                      <div className="font-mono text-xl">₹{Math.round(value).toLocaleString('en-IN')}</div>
+                      <div className="font-mono text-xl">{formatCurrency(Math.round(value))}</div>
                     </div>
 
                     <button
@@ -790,14 +830,13 @@ const InventoryPage = () => {
                 <div className="text-xl font-semibold">Manage Product</div>
                 <button 
                   onClick={handleDeleteProduct}
-                  disabled={isSaving}
-                  className={`text-xs transition-colors uppercase tracking-widest font-mono px-3 py-1.5 rounded-xl border disabled:opacity-40 disabled:cursor-not-allowed ${
+                  className={`text-xs transition-colors uppercase tracking-widest font-mono px-3 py-1.5 rounded-xl border ${
                     showDeleteConfirm 
                       ? 'bg-rose-500 text-white border-rose-500' 
                       : 'text-rose-400 border-rose-500/20 hover:bg-rose-500/10'
                   }`}
                 >
-                  {showDeleteConfirm ? (isSaving ? 'Deleting...' : 'Confirm Delete?') : 'Delete Product'}
+                  {showDeleteConfirm ? 'Confirm Delete?' : 'Delete Product'}
                 </button>
               </div>
               
@@ -897,7 +936,7 @@ const InventoryPage = () => {
                 <div>
                   <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Estimated Inventory Value</div>
                   <div className="text-2xl font-semibold font-mono">
-                    ₹{Math.round((editForm.quantity + adjustAmount) * editForm.price).toLocaleString('en-IN')}
+                    {formatCurrency(Math.round((editForm.quantity + adjustAmount) * editForm.price))}
                   </div>
                 </div>
               </div>
@@ -905,17 +944,15 @@ const InventoryPage = () => {
               <div className="flex gap-3">
                 <button
                   onClick={() => setModalItem(null)}
-                  disabled={isSaving}
-                  className="flex-1 py-4 border border-white/10 rounded-2xl hover:bg-white/5 transition-colors disabled:opacity-40"
+                  className="flex-1 py-4 border border-white/10 rounded-2xl hover:bg-white/5 transition-colors"
                 >
                   CANCEL
                 </button>
                 <button
                   onClick={handleAdjustStock}
-                  disabled={isSaving}
-                  className="flex-1 py-4 bg-white text-black rounded-2xl font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex-1 py-4 bg-white text-black rounded-2xl font-semibold hover:bg-zinc-200 transition-colors"
                 >
-                  {isSaving ? 'SAVING...' : 'SAVE CHANGES'}
+                  SAVE CHANGES
                 </button>
               </div>
             </motion.div>
@@ -1031,105 +1068,103 @@ const InventoryPage = () => {
 
 const ForecastingPage = () => {
   const { currentUser } = useAuth();
-  const { branches, products, inventory } = useInventory(); // Fix: Added inventory here
+  const { branches, products, sales } = useInventory();
   const isManager = currentUser?.role === 'manager';
 
   const [selectedProductId, setSelectedProductId] = useState('');
   const [selectedBranchId, setSelectedBranchId] = useState(isManager ? (currentUser?.branchId || '') : 'all');
-  
-  // Set default product on load
+  const [forecastData, setForecastData] = useState({
+    history: [],
+    forecast: [],
+    currentStock: 0,
+    reorderPoint: 0,
+    demandForecast: 0,
+    reorderLevel: 0,
+    trend: [],
+    risk: 'Low Risk',
+    insufficientData: true
+  });
+  const [isLoadingForecast, setIsLoadingForecast] = useState(false);
+
   useEffect(() => {
-    if (products && products.length > 0 && !selectedProductId) {
-      setSelectedProductId(products[0]._id || products[0].id);
+    if (!selectedProductId && products.length > 0) {
+      const soldProductId = (sales || []).find((s) => s?.productId)?.productId;
+      const firstAvailable = products[0]._id || products[0].id;
+      setSelectedProductId(soldProductId || firstAvailable);
     }
-  }, [products, selectedProductId]);
+  }, [products, sales, selectedProductId]);
 
-  // 1. SAFE PRODUCT FETCH
-  const selectedProduct = (products || []).find(
-    p => (p?._id || p?.id) === selectedProductId
-  );
+  useEffect(() => {
+    const fetchForecast = async () => {
+      if (!selectedProductId) return;
+      setIsLoadingForecast(true);
+      try {
+        const params = new URLSearchParams({
+          productId: selectedProductId,
+          branchId: selectedBranchId || 'all'
+        });
+        const response = await fetch(`${API}/api/reports/forecast?${params.toString()}`);
+        if (!response.ok) throw new Error('Failed to fetch forecast data');
+        const payload = await response.json();
+        console.log('API response:', payload);
+        setForecastData(payload?.data ?? {
+          history: [],
+          forecast: [],
+          currentStock: 0,
+          reorderPoint: 0,
+          demandForecast: 0,
+          reorderLevel: 0,
+          trend: [],
+          risk: 'Low Risk',
+          insufficientData: true
+        });
+      } catch (error) {
+        console.error(error);
+        setForecastData({
+          history: [],
+          forecast: [],
+          currentStock: 0,
+          reorderPoint: 0,
+          demandForecast: 0,
+          reorderLevel: 0,
+          trend: [],
+          risk: 'Low Risk',
+          insufficientData: true
+        });
+      } finally {
+        setIsLoadingForecast(false);
+      }
+    };
 
-  // 2. SAFE INVENTORY FILTER
-  const productInventory = (inventory || []).filter(
-    i => i && i.productId === selectedProductId
-  );
+    fetchForecast();
+  }, [selectedProductId, selectedBranchId]);
 
-  // 8. OPTIONAL DEBUG (IMPORTANT)
+  const selectedProduct = products.find(p => (p._id || p.id) === selectedProductId);
+  const historySeries = (forecastData.history || []).map((item) => ({
+    month: item.month,
+    actual: item.totalQuantity,
+    predicted: item.totalQuantity,
+    inventory: forecastData.currentStock,
+    range: [Math.max(0, Math.round(item.totalQuantity * 0.85)), Math.round(item.totalQuantity * 1.15)]
+  }));
 
-  // 3. SAFE STOCK CALCULATION
-  let currentStock = 0;
-  if (selectedBranchId === 'all') {
-    currentStock = (productInventory || []).reduce(
-      (sum, i) => sum + (i?.quantity || 0),
-      0
-    );
-  } else {
-    currentStock = (productInventory || [])
-      .filter(i => i && i.branchId === selectedBranchId)
-      .reduce((sum, i) => sum + (i?.quantity || 0), 0);
-  }
+  const futureSeries = (forecastData.forecast || []).map((item) => ({
+    month: item.month,
+    predicted: item.quantity,
+    inventory: forecastData.currentStock,
+    range: [Math.max(0, Math.round(item.quantity * 0.85)), Math.round(item.quantity * 1.15)]
+  }));
 
-  // 4. SAFE REORDER POINT
-  const reorderPoint = (productInventory || []).length > 0
-    ? Math.round((productInventory || []).reduce((sum, i) => sum + (i?.reorderPoint || 0), 0) / productInventory.length)
-    : 20;
+  const chartData = [...historySeries, ...futureSeries];
+  const nextPeriodDemand = forecastData.demandForecast || forecastData.forecast?.[0]?.quantity || 0;
+  const recommendedReorder = Math.max(0, Number(forecastData.reorderLevel ?? forecastData.reorderPoint ?? 0));
 
-  // 5. ALWAYS DEFINE HISTORY + FORECAST (Uniquely per product)
-  const productHash = (selectedProductId || "default").split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const getHistoricalValue = (monthIndex) => {
-    const base = Math.max(5, Math.floor(currentStock / 8));
-    const variance = (productHash + monthIndex) % 5;
-    return base + variance;
-  };
-
-  const history = [0, 1, 2, 3, 4, 5].map(i => getHistoricalValue(i));
-  const forecast = history.slice(-3).map(v => Math.round(v * 1.15));
-
-  // 6. SAFE forecastResponse (Used as source for graph data)
-  const forecastResponse = {
-    history: (history || []).map((v, i) => ({
-      _id: { month: i + 1, year: 2025 },
-      totalQuantity: v || 0
-    })),
-    forecast: (forecast || []).map((v, i) => ({
-      month: ["Jul", "Aug", "Sep"][i],
-      quantity: v || 0
-    })),
-    insufficientData: false
-  };
-
-  const historyMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
-  const forecastMonths = ["Jul", "Aug", "Sep"];
-
-  const forecastData = [
-    ...(forecastResponse.history || []).map((v, i) => ({
-      month: historyMonths[i],
-      actual: v.totalQuantity,
-      predicted: v.totalQuantity,
-      inventory: currentStock,
-      range: [Math.round(v.totalQuantity * 0.85), Math.round(v.totalQuantity * 1.15)]
-    })),
-    ...(forecastResponse.forecast || []).map((v, i) => ({
-      month: v.month,
-      predicted: v.quantity,
-      inventory: currentStock,
-      range: [Math.round(v.quantity * 0.85), Math.round(v.quantity * 1.15)]
-    }))
-  ];
-
-  // 7. FIX KPI VALUES
-  const nextPeriodDemand = forecast[0] || 0;
-  const recommendedReorder = Math.max(0, Math.round(nextPeriodDemand * 2 - currentStock));
-  
-  let stockoutWarning = "Low Risk";
-  let stockInsight = "Stable inventory";
-  
-  if (currentStock < reorderPoint) {
-    stockoutWarning = "High Risk";
-    stockInsight = "Stock running low. Reorder recommended.";
-  } else if (currentStock < reorderPoint * 1.5) {
-    stockoutWarning = "Moderate Risk";
-    stockInsight = "Stock running low";
+  const stockoutWarning = forecastData.risk || 'Low Risk';
+  let stockInsight = 'Stable inventory';
+  if (stockoutWarning === 'High Risk') {
+    stockInsight = 'Stock running low. Reorder recommended.';
+  } else if (stockoutWarning === 'Medium Risk' || stockoutWarning === 'Moderate Risk') {
+    stockInsight = 'Stock is trending low.';
   }
 
   return (
@@ -1139,14 +1174,16 @@ const ForecastingPage = () => {
           <div className="uppercase text-xs tracking-[3px] text-zinc-500 mb-1">PREDICTIVE ANALYTICS</div>
           <h1 className="text-6xl font-semibold tracking-tighter flex items-center gap-4">
             Demand Forecasting
-            <div className="px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-indigo-400 text-sm font-mono tracking-widest uppercase">AI PROJECTION</div>
+            <div className="px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-indigo-400 text-sm font-mono tracking-widest uppercase">LIVE DATA</div>
           </h1>
-          <p className="text-2xl text-zinc-400 mt-3 max-w-md italic opacity-80">Autonomous predictive analysis based on global inventory vectors</p>
+          <p className="text-2xl text-zinc-400 mt-3 max-w-md italic opacity-80">
+            Forecasting from actual sales history in MongoDB
+          </p>
         </div>
 
         <div className="flex gap-4 mb-8">
           <div className="flex-1">
-            <label className="text-xs uppercase text-zinc-500 mb-3 block font-mono tracking-wider ml-2">PRIMARY VECTOR [PRODUCT]</label>
+            <label className="text-xs uppercase text-zinc-500 mb-3 block font-mono tracking-wider ml-2">PRODUCT</label>
             <select
               value={selectedProductId}
               onChange={(e) => setSelectedProductId(e.target.value)}
@@ -1155,9 +1192,7 @@ const ForecastingPage = () => {
             >
               {products.length > 0 ? (
                 products.map(p => (
-                  <option key={p._id || p.id} value={p._id || p.id}>
-                    {p.name}
-                  </option>
+                  <option key={p._id || p.id} value={p._id || p.id}>{p.name}</option>
                 ))
               ) : (
                 <option value="">No products available</option>
@@ -1165,7 +1200,7 @@ const ForecastingPage = () => {
             </select>
           </div>
           <div className="flex-1">
-            <label className="text-xs uppercase text-zinc-500 mb-3 block font-mono tracking-wider ml-2">SPATIAL INDEX [BRANCH]</label>
+            <label className="text-xs uppercase text-zinc-500 mb-3 block font-mono tracking-wider ml-2">BRANCH</label>
             <select
               value={selectedBranchId}
               onChange={(e) => setSelectedBranchId(e.target.value)}
@@ -1176,8 +1211,8 @@ const ForecastingPage = () => {
               {branches
                 .filter(b => !isManager || b.id === currentUser?.branchId)
                 .map(b => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
             </select>
           </div>
         </div>
@@ -1186,8 +1221,8 @@ const ForecastingPage = () => {
           <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 blur-[120px] -mr-48 -mt-48 rounded-full pointer-events-none" />
           <div className="flex justify-between items-start mb-10 relative z-10">
             <div>
-              <div className="font-mono text-sm tracking-[4px] text-indigo-400 mb-4 uppercase">Real-time Stock Pulse</div>
-              <div className="text-8xl font-light tabular-nums tracking-tighter text-white">{currentStock}</div>
+              <div className="font-mono text-sm tracking-[4px] text-indigo-400 mb-4 uppercase">Current Stock</div>
+              <div className="text-8xl font-light tabular-nums tracking-tighter text-white">{forecastData.currentStock || 0}</div>
               <div className={`text-sm mt-4 font-medium px-4 py-2 rounded-full inline-block ${stockoutWarning === 'High Risk' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : stockoutWarning === 'Moderate Risk' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
                 {stockInsight}
               </div>
@@ -1195,86 +1230,51 @@ const ForecastingPage = () => {
 
             <div className="text-right">
               <div className="text-xs uppercase text-zinc-500 font-mono tracking-widest mb-2">REORDER THRESHOLD</div>
-              <div className="text-5xl text-rose-400/90 font-light tabular-nums tracking-tighter">{reorderPoint}</div>
+              <div className="text-5xl text-rose-400/90 font-light tabular-nums tracking-tighter">{forecastData.reorderPoint || 0}</div>
               <div className="text-[10px] text-zinc-600 mt-3 uppercase tracking-[2px] font-mono">Auto-Trigger System</div>
             </div>
           </div>
 
-          <div className="mb-4 text-[11px] text-zinc-500 italic opacity-60">
-            * Forecast is based on historical trends and current inventory levels.
-          </div>
-
-          {(!forecastResponse || !forecastResponse.history || forecastData.length === 0) ? (
+          {isLoadingForecast ? (
+            <div className="h-[340px] flex items-center justify-center text-zinc-400">Loading forecast...</div>
+          ) : (forecastData.insufficientData || chartData.length === 0) ? (
             <div className="h-[340px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-2xl bg-white/[0.02]">
-              <div className="text-zinc-400 mb-2 font-medium">No data available</div>
-              <div className="text-zinc-600 text-xs">A minimum of 2 months of history is required for projections</div>
+              <div className="text-zinc-400 mb-2 font-medium">No data</div>
+              <div className="text-zinc-600 text-xs">No sales history found for this product/branch yet.</div>
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={340}>
-              <ComposedChart data={forecastData}>
+              <ComposedChart data={chartData}>
                 <CartesianGrid strokeDasharray="2 3" stroke="#27272a" />
                 <XAxis dataKey="month" stroke="#52525b" />
                 <YAxis stroke="#52525b" />
                 <Tooltip contentStyle={{ backgroundColor: '#18181b', border: 'none', borderRadius: '8px' }} />
-                <Area
-                  type="natural"
-                  dataKey="range"
-                  stroke="none"
-                  fill="#6366f1"
-                  fillOpacity={0.15}
-                  name="Confidence Interval"
-                />
-                <Line
-                  type="stepAfter"
-                  dataKey="inventory"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  strokeDasharray="4 4"
-                  dot={false}
-                  name="Current Inventory"
-                />
-                <Line
-                  type="natural"
-                  dataKey="actual"
-                  stroke="#a1a1aa"
-                  strokeWidth={2.5}
-                  dot={{ r: 4, fill: '#a1a1aa' }}
-                  name="Actual Demand"
-                />
-                <Line
-                  type="natural"
-                  dataKey="predicted"
-                  stroke="#6366f1"
-                  strokeWidth={4}
-                  strokeDasharray="5 5"
-                  dot={{ r: 4, fill: '#6366f1', strokeWidth: 3, stroke: '#18181b' }}
-                  name="Forecasted Demand"
-                />
+                <Area type="natural" dataKey="range" stroke="none" fill="#6366f1" fillOpacity={0.15} name="Confidence Interval" />
+                <Line type="stepAfter" dataKey="inventory" stroke="#10b981" strokeWidth={2} strokeDasharray="4 4" dot={false} name="Current Inventory" />
+                <Line type="natural" dataKey="actual" stroke="#a1a1aa" strokeWidth={2.5} dot={{ r: 4, fill: '#a1a1aa' }} name="Actual Demand" />
+                <Line type="natural" dataKey="predicted" stroke="#6366f1" strokeWidth={4} strokeDasharray="5 5" dot={{ r: 4, fill: '#6366f1', strokeWidth: 3, stroke: '#18181b' }} name="Forecasted Demand" />
               </ComposedChart>
             </ResponsiveContainer>
           )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="glass rounded-[2.5rem] py-10 px-8 border border-white/5 relative overflow-hidden group hover:border-indigo-500/40 transition-all duration-500">
-            <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            <div className="text-[10px] tracking-[3px] opacity-60 font-mono text-indigo-400 mb-2 uppercase relative z-10">Demand Projection</div>
-            <div className="text-7xl font-extralight tracking-tighter mt-4 text-white group-hover:scale-105 transition-transform duration-500 relative z-10">{nextPeriodDemand}</div>
-            <div className="text-[10px] text-zinc-500 mt-4 uppercase tracking-[3px] font-mono relative z-10">Expected Units [N+1]</div>
+          <div className="glass rounded-[2.5rem] py-10 px-8 border border-white/5">
+            <div className="text-[10px] tracking-[3px] opacity-60 font-mono text-indigo-400 mb-2 uppercase">Demand Projection</div>
+            <div className="text-7xl font-extralight tracking-tighter mt-4 text-white">{nextPeriodDemand}</div>
+            <div className="text-[10px] text-zinc-500 mt-4 uppercase tracking-[3px] font-mono">Expected Units [N+1]</div>
           </div>
 
-          <div className="glass rounded-[2.5rem] py-10 px-8 border border-white/5 relative overflow-hidden group hover:border-emerald-500/40 transition-all duration-500">
-            <div className="absolute inset-0 bg-gradient-to-tr from-emerald-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            <div className="text-[10px] tracking-[3px] opacity-60 font-mono text-emerald-400 mb-2 uppercase relative z-10">Inventory Recovery</div>
-            <div className="text-7xl font-extralight tracking-tighter mt-4 text-white group-hover:scale-105 transition-transform duration-500 relative z-10">{recommendedReorder}</div>
-            <div className="text-[10px] text-zinc-500 mt-4 uppercase tracking-[3px] font-mono relative z-10">Recommended Units</div>
+          <div className="glass rounded-[2.5rem] py-10 px-8 border border-white/5">
+            <div className="text-[10px] tracking-[3px] opacity-60 font-mono text-emerald-400 mb-2 uppercase">Inventory Recovery</div>
+            <div className="text-7xl font-extralight tracking-tighter mt-4 text-white">{recommendedReorder}</div>
+            <div className="text-[10px] text-zinc-500 mt-4 uppercase tracking-[3px] font-mono">Recommended Units</div>
           </div>
 
-          <div className="glass rounded-[2.5rem] py-10 px-8 border border-white/5 relative overflow-hidden group hover:border-rose-500/40 transition-all duration-500">
-            <div className="absolute inset-0 bg-gradient-to-tr from-rose-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            <div className="text-[10px] tracking-[3px] opacity-60 font-mono text-rose-400 mb-2 uppercase relative z-10">Security Protocol</div>
-            <div className="text-5xl font-light tracking-tight mt-6 text-white group-hover:scale-105 transition-transform duration-500 relative z-10">{stockoutWarning}</div>
-            <div className="text-[10px] text-zinc-500 mt-6 uppercase tracking-[3px] font-mono relative z-10">Risk Status [Sigma]</div>
+          <div className="glass rounded-[2.5rem] py-10 px-8 border border-white/5">
+            <div className="text-[10px] tracking-[3px] opacity-60 font-mono text-rose-400 mb-2 uppercase">Risk Status</div>
+            <div className="text-5xl font-light tracking-tight mt-6 text-white">{stockoutWarning}</div>
+            <div className="text-[10px] text-zinc-500 mt-6 uppercase tracking-[3px] font-mono">Current Signal</div>
           </div>
         </div>
       </div>
@@ -1284,115 +1284,108 @@ const ForecastingPage = () => {
 
 const ReportsPage = () => {
   const { currentUser } = useAuth();
-  const { inventory, products, branches, sales } = useInventory();
-  const [reportType, setReportType] = useState('inventory');
-  
-  // If user is a manager, default and lock to their branch
+  const { branches } = useInventory();
+
   const isManager = currentUser?.role === 'manager';
-  const initialBranch = isManager ? currentUser.branchId : "";
-  const [selectedBranch, setSelectedBranch] = useState(initialBranch);
+  const [reportType, setReportType] = useState('inventory');
+  const [selectedBranch, setSelectedBranch] = useState(isManager ? currentUser.branchId : 'all');
+  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
+  const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
+  const [reportPayload, setReportPayload] = useState(null);
+  const [isLoadingReports, setIsLoadingReports] = useState(false);
+  const [selectedReportBranch, setSelectedReportBranch] = useState(null);
 
-  const filteredInventory = selectedBranch 
-    ? inventory.filter(i => i.branchId === selectedBranch) 
-    : inventory;
-    
-  const filteredSales = selectedBranch
-    ? sales.filter(s => s.branchId === selectedBranch)
-    : sales;
+  useEffect(() => {
+    const fetchReports = async () => {
+      setIsLoadingReports(true);
+      try {
+        console.log('Reports filters:', { startDate, endDate, branchId: selectedBranch || 'all' });
+        const params = new URLSearchParams({
+          branchId: selectedBranch || 'all',
+          startDate,
+          endDate
+        });
 
-  const totalStockItems = filteredInventory.length;
-  const totalStockValue = filteredInventory.reduce((sum, item) => {
-    const product = products.find(p => (p._id || p.id) === item.productId);
-    return sum + (product?.price || 0) * item.quantity;
-  }, 0);
+        const response = await fetch(`${API}/api/reports?${params.toString()}`);
+        if (!response.ok) throw new Error('Failed to fetch reports');
+        const payload = await response.json();
+        setReportPayload(payload?.data || null);
+      } catch (error) {
+        console.error(error);
+        setReportPayload(null);
+      } finally {
+        setIsLoadingReports(false);
+      }
+    };
 
-  const totalSalesRevenue = filteredSales.reduce((sum, sale) => sum + (sale.revenue || 0), 0);
-  const totalTransactions = filteredSales.length;
+    fetchReports();
+  }, [selectedBranch, startDate, endDate]);
 
-  const getBranchPerformanceData = () => {
-    // If manager, only their branch. If admin, selected or all.
-    const allowedBranches = isManager 
-      ? branches.filter(b => b.id === currentUser.branchId)
-      : branches;
-
-    const branchesToDisplay = selectedBranch 
-      ? allowedBranches.filter(b => b.id === selectedBranch)
-      : allowedBranches;
-
-    return branchesToDisplay.map(branch => {
-      const bInv = inventory.filter(i => i.branchId === branch.id);
-      const bLowStock = bInv.filter(i => i.quantity < i.reorderPoint && i.quantity > 0).length;
-      const bSales = sales.filter(s => s.branchId === branch.id);
-      const bRev = bSales.reduce((sum, s) => sum + (s.revenue || 0), 0);
-
-      return {
-        id: branch.id,
-        name: branch.name,
-        totalProducts: bInv.length,
-        lowStock: bLowStock,
-        totalSales: bSales.length,
-        revenue: bRev
-      };
-    });
+  const summary = reportPayload?.summary || {
+    totalStock: 0,
+    inventoryValue: 0,
+    totalSalesRevenue: 0,
+    totalTransactions: 0,
+    lowStockItems: 0,
+    totalProducts: 0
   };
 
-  const branchPerformanceData = getBranchPerformanceData();
-  const reportData = generateInventoryReport(inventory, products, branches, selectedBranch);
+  const branchPerformanceData = reportPayload?.branchPerformance || [];
+  const reportData = (reportPayload?.inventoryReport || []).map((row) => ({
+    Branch: row.branchId,
+    Product: row.productName || 'Unknown',
+    Category: row.category || '',
+    'Current Stock': row.quantity || 0,
+    'Reorder Point': row.reorderPoint || 0,
+    'Stock Value': Math.round((row.quantity || 0) * (row.price || 0)),
+    Status: (row.quantity || 0) < (row.reorderPoint || 0) ? 'Low' : 'Healthy'
+  }));
 
-  const [selectedReportBranch, setSelectedReportBranch] = useState(null);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const branchNameMap = new Map(branches.map((b) => [b.id, b.name]));
 
   const handleExport = () => {
-    const prefix = selectedBranch 
-      ? `-${branches.find(b => b.id === selectedBranch)?.name.toLowerCase().replace(/\s+/g, '-')}`
+    const prefix = selectedBranch && selectedBranch !== 'all'
+      ? `-${(branchNameMap.get(selectedBranch) || selectedBranch).toLowerCase().replace(/\s+/g, '-')}`
       : '-all-branches';
 
     if (reportType === 'inventory') {
       exportToCSV(reportData, `inventory-report${prefix}-${new Date().toISOString().slice(0, 10)}.csv`);
-      toast.success("Inventory report exported", { description: "CSV downloaded successfully" });
-    } else {
-      const salesByBranch = branchPerformanceData.map(b => ({
-        Branch: b.name,
-        'Total Products': b.totalProducts,
-        'Low Stock Items': b.lowStock,
-        'Total Transactions': b.totalSales,
-        'Total Revenue': Number(b.revenue.toFixed(2))
-      }));
-      exportToCSV(salesByBranch, `sales-summary${prefix}-${new Date().toISOString().slice(0, 10)}.csv`);
-      toast.success("Sales summary exported");
+      toast.success('Inventory report exported');
+      return;
     }
+
+    const salesByBranch = branchPerformanceData.map((b) => ({
+      Branch: b.name,
+      'Total Products': b.totalProducts,
+      'Low Stock Items': b.lowStock,
+      'Total Transactions': b.totalSales,
+      'Total Revenue': Number((b.revenue || 0).toFixed(2))
+    }));
+
+    exportToCSV(salesByBranch, `sales-summary${prefix}-${new Date().toISOString().slice(0, 10)}.csv`);
+    toast.success('Sales summary exported');
   };
 
   const handleDownloadBranchReport = (branchData) => {
-    setIsDownloading(true);
-    // Simulate generation time for animation
-    setTimeout(() => {
-      exportToCSV([branchData], `stocksphere-branch-report-${branchData.name.toLowerCase().replace(/\s+/g, '-')}.csv`);
-      
-      // We will map the specific branch data to the required portfolio csv shape
-      const branchDetails = {
-        name: branchData.name,
-        totalProducts: branchData.totalProducts,
-        lowStock: branchData.lowStock,
-        totalValue: inventory.filter(i => i.branchId === branchData.id).reduce((sum, item) => sum + (products.find(p => (p._id || p.id) === (item.productId?._id || item.productId))?.price || 0) * item.quantity, 0),
-        totalSales: branchData.totalSales,
-        revenue: branchData.revenue,
-        products: inventory.filter(i => i.branchId === branchData.id).map(i => {
-           const prod = products.find(p => (p._id || p.id) === (i.productId?._id || i.productId));
-           return {
-             name: prod?.name || 'Unknown',
-             category: prod?.category || 'General',
-             quantity: i.quantity,
-             reorderPoint: i.reorderPoint
-           };
-        })
-      };
+    const branchRows = (reportPayload?.inventoryReport || []).filter((row) => row.branchId === branchData.id);
+    const branchDetails = {
+      name: branchData.name,
+      manager: 'Unassigned',
+      totalProducts: branchData.totalProducts || 0,
+      lowStock: branchData.lowStock || 0,
+      totalValue: branchData.stockValue || 0,
+      totalSales: branchData.totalSales || 0,
+      revenue: branchData.revenue || 0,
+      products: branchRows.map((r) => ({
+        name: r.productName || 'Unknown',
+        category: r.category || 'General',
+        quantity: r.quantity || 0,
+        reorderPoint: r.reorderPoint || 0
+      }))
+    };
 
-      downloadPortfolioCSV(branchDetails, `stocksphere-branch-report-${branchData.name.toLowerCase().replace(/\s+/g, '-')}.csv`);
-      
-      setIsDownloading(false);
-      toast.success("Branch report downloaded successfully.");
-    }, 1200);
+    downloadPortfolioCSV(branchDetails, `stocksphere-branch-report-${branchData.name.toLowerCase().replace(/\s+/g, '-')}.csv`);
+    toast.success('Branch report downloaded successfully.');
   };
 
   return (
@@ -1400,8 +1393,8 @@ const ReportsPage = () => {
       <div className="max-w-5xl">
         <div className="flex justify-between items-end mb-3">
           <div>
-            <h1 className="text-6xl font-semibold tracking-tighter">Reports &amp; Analytics</h1>
-            <p className="max-w-md text-xl text-zinc-400 mt-2">Download comprehensive inventory and sales reports in CSV format</p>
+            <h1 className="text-6xl font-semibold tracking-tighter">Reports & Analytics</h1>
+            <p className="max-w-md text-xl text-zinc-400 mt-2">Live, date-filtered inventory and sales reporting from MongoDB</p>
           </div>
           <div className="w-64">
             <label className="text-xs uppercase text-zinc-400 mb-2 block">Select Branch</label>
@@ -1411,41 +1404,49 @@ const ReportsPage = () => {
               disabled={isManager}
               className="w-full bg-zinc-900 border border-white/10 px-4 py-3 rounded-2xl text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50"
             >
-              {!isManager && <option value="">All Branches</option>}
+              {!isManager && <option value="all">All Branches</option>}
               {branches
                 .filter(b => !isManager || b.id === currentUser.branchId)
                 .map(b => (
-                 <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
             </select>
           </div>
         </div>
 
-        <div className="mt-12 flex gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 mb-6">
+          <div>
+            <label className="text-xs uppercase text-zinc-400 mb-2 block">Start Date</label>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full bg-zinc-900 border border-white/10 px-4 py-3 rounded-2xl text-sm" />
+          </div>
+          <div>
+            <label className="text-xs uppercase text-zinc-400 mb-2 block">End Date</label>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full bg-zinc-900 border border-white/10 px-4 py-3 rounded-2xl text-sm" />
+          </div>
+        </div>
+
+        <div className="mt-8 flex gap-4">
           <button
             onClick={() => setReportType('inventory')}
             className={`flex-1 p-8 rounded-3xl text-left transition-all ${reportType === 'inventory' ? 'bg-white text-black' : 'glass border border-white/5 hover:bg-white/5'}`}
           >
-            <div className="flex justify-between items-start mb-6">
-              <div className="text-xs tracking-[2px] opacity-60 font-medium">FULL INVENTORY</div>
-            </div>
-            <div className="text-4xl font-light">Stock Snapshot</div>
+            <div className="text-xs tracking-[2px] opacity-60 font-medium">FULL INVENTORY</div>
+            <div className="text-4xl font-light mt-4">Stock Snapshot</div>
             <div className="mt-6 flex items-baseline gap-4">
-              <div className="text-5xl tracking-tighter tabular-nums">₹{Math.round(totalStockValue).toLocaleString('en-IN')}</div>
-              <div className="text-sm opacity-60 uppercase tracking-widest">{totalStockItems} Items</div>
+              <div className="text-5xl tracking-tighter tabular-nums">{formatCurrency(Math.round(summary.inventoryValue || 0))}</div>
+              <div className="text-sm opacity-60 uppercase tracking-widest">{summary.totalStock || 0} Units</div>
             </div>
           </button>
+
           <button
             onClick={() => setReportType('sales')}
             className={`flex-1 p-8 rounded-3xl text-left transition-all ${reportType === 'sales' ? 'bg-white text-black' : 'glass border border-white/5 hover:bg-white/5'}`}
           >
-            <div className="flex justify-between items-start mb-6">
-              <div className="text-xs tracking-[2px] opacity-60 font-medium">PERFORMANCE</div>
-            </div>
-            <div className="text-4xl font-light">Revenue Summary</div>
+            <div className="text-xs tracking-[2px] opacity-60 font-medium">PERFORMANCE</div>
+            <div className="text-4xl font-light mt-4">Revenue Summary</div>
             <div className="mt-6 flex items-baseline gap-4">
-              <div className="text-5xl tracking-tighter tabular-nums">₹{Math.round(totalSalesRevenue).toLocaleString('en-IN')}</div>
-              <div className="text-sm opacity-60 uppercase tracking-widest">{totalTransactions} Sales</div>
+              <div className="text-5xl tracking-tighter tabular-nums">{formatCurrency(Math.round(summary.totalSalesRevenue || 0))}</div>
+              <div className="text-sm opacity-60 uppercase tracking-widest">{summary.totalTransactions || 0} Sales</div>
             </div>
           </button>
         </div>
@@ -1457,44 +1458,48 @@ const ReportsPage = () => {
           <Download className="w-5 h-5" /> DOWNLOAD OVERVIEW REPORT
         </button>
 
-        <div className="mt-16">
-          <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2"><FileText className="w-5 h-5 text-indigo-400"/> Detailed Branch Reports</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-            {branchPerformanceData.map((branch) => (
-              <motion.div
-                key={branch.id}
-                whileHover={{ scale: 1.02, y: -4 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setSelectedReportBranch(branch)}
-                className="glass rounded-3xl p-6 cursor-pointer border border-white/5 hover:border-indigo-500/30 group transition-all"
-              >
-                <div className="flex justify-between items-start mb-6">
-                  <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center group-hover:bg-indigo-500/20 transition-colors">
-                    <Building2 className="w-5 h-5 text-indigo-400" />
+        {isLoadingReports ? (
+          <div className="mt-10 text-zinc-400">Loading reports...</div>
+        ) : (
+          <div className="mt-16">
+            <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2"><FileText className="w-5 h-5 text-indigo-400"/> Detailed Branch Reports</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+              {branchPerformanceData.map((branch) => (
+                <motion.div
+                  key={branch.id}
+                  whileHover={{ scale: 1.02, y: -4 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setSelectedReportBranch(branch)}
+                  className="glass rounded-3xl p-6 cursor-pointer border border-white/5 hover:border-indigo-500/30 group transition-all"
+                >
+                  <div className="flex justify-between items-start mb-6">
+                    <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center group-hover:bg-indigo-500/20 transition-colors">
+                      <Building2 className="w-5 h-5 text-indigo-400" />
+                    </div>
+                    <div className={`px-2.5 py-1 text-[10px] uppercase font-bold rounded-lg ${branch.lowStock > 0 ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+                      {branch.lowStock > 0 ? `${branch.lowStock} WARNINGS` : 'HEALTHY'}
+                    </div>
                   </div>
-                  <div className={`px-2.5 py-1 text-[10px] uppercase font-bold rounded-lg ${branch.lowStock > 0 ? "bg-amber-500/10 text-amber-500" : "bg-emerald-500/10 text-emerald-500"}`}>
-                    {branch.lowStock > 0 ? `${branch.lowStock} WARNINGS` : 'HEALTHY'}
-                  </div>
-                </div>
 
-                <div className="text-xl font-light mb-1">{branch.name}</div>
-                <div className="text-xs text-zinc-500 uppercase tracking-widest mb-6">{branch.totalProducts} Active Products</div>
+                  <div className="text-xl font-light mb-1">{branch.name}</div>
+                  <div className="text-xs text-zinc-500 uppercase tracking-widest mb-6">{branch.totalProducts} Active Products</div>
 
-                <div className="space-y-4">
-                  <div className="flex justify-between items-end">
-                    <div className="text-xs text-zinc-400 uppercase">Sales</div>
-                    <div className="font-mono">{branch.totalSales}</div>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-end">
+                      <div className="text-xs text-zinc-400 uppercase">Sales</div>
+                      <div className="font-mono">{branch.totalSales}</div>
+                    </div>
+                    <div className="h-px w-full bg-white/5" />
+                    <div className="flex justify-between items-end">
+                      <div className="text-xs text-zinc-400 uppercase">Revenue</div>
+                      <div className="font-mono text-emerald-400">{formatCurrency(branch.revenue || 0)}</div>
+                    </div>
                   </div>
-                  <div className="h-px w-full bg-white/5" />
-                  <div className="flex justify-between items-end">
-                    <div className="text-xs text-zinc-400 uppercase">Revenue</div>
-                    <div className="font-mono text-emerald-400">₹{branch.revenue.toLocaleString('en-IN')}</div>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
+                </motion.div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <AnimatePresence>
@@ -1504,132 +1509,23 @@ const ReportsPage = () => {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-              className="bg-[#0B0F14] border border-white/10 w-full max-w-4xl max-h-full rounded-[2rem] overflow-hidden flex flex-col shadow-2xl relative"
+              className="bg-[#0B0F14] border border-white/10 w-full max-w-3xl rounded-[2rem] overflow-hidden"
             >
-              {/* Report Header */}
-              <div className="p-8 md:p-12 border-b border-white/5 bg-white/[0.02]">
-                <button 
-                  onClick={() => setSelectedReportBranch(null)} 
-                  className="absolute top-8 right-8 w-10 h-10 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 transition pb-1"
-                >
-                  ✕
-                </button>
-                <div className="text-[10px] uppercase tracking-[0.2em] text-indigo-400 mb-4 flex items-center gap-2">
-                  <FileText className="w-3 h-3" /> STOCKSPHERE BRANCH INVENTORY REPORT
-                </div>
-                <h2 className="text-5xl font-light tracking-tight mb-2">{selectedReportBranch.name}</h2>
-                <div className="text-sm text-zinc-400 flex items-center gap-6">
-                  <span>Report Generated: {new Date().toLocaleDateString()}</span>
-                  <span className="w-1 h-1 bg-zinc-700 rounded-full" />
-                  <span>Confidential Analytics</span>
-                </div>
+              <div className="p-8 border-b border-white/5">
+                <div className="text-3xl tracking-tight">{selectedReportBranch.name}</div>
+                <div className="text-sm text-zinc-400 mt-2">Date range: {startDate} to {endDate}</div>
               </div>
-
-              {/* Report Body */}
-              <div className="p-8 md:p-12 overflow-y-auto flex-1">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
-                  {/* Inventory Summary */}
-                  <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-6 pb-2 border-b border-white/10">Inventory Summary</h3>
-                    <div className="space-y-6">
-                      <div>
-                        <div className="text-sm text-zinc-400 mb-1">Total Active Products</div>
-                        <div className="text-3xl font-light">{selectedReportBranch.totalProducts}</div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-zinc-400 mb-1">Low Stock Alerts</div>
-                        <div className="text-3xl font-light text-amber-400">{selectedReportBranch.lowStock}</div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-zinc-400 mb-1">Estimated Inventory Value</div>
-                        <div className="text-3xl font-light font-mono">
-                          ₹{(inventory.filter(i => i.branchId === selectedReportBranch.id).reduce((sum, item) => sum + (products.find(p => (p._id || p.id) === (item.productId?._id || item.productId))?.price || 0) * item.quantity, 0)).toLocaleString('en-IN', {minimumFractionDigits: 2})}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Sales Summary */}
-                  <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-6 pb-2 border-b border-white/10">Sales Performance</h3>
-                    <div className="space-y-6">
-                      <div>
-                        <div className="text-sm text-zinc-400 mb-1">Total Transactions</div>
-                        <div className="text-3xl font-light">{selectedReportBranch.totalSales}</div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-zinc-400 mb-1">Total Revenue Generated</div>
-                        <div className="text-3xl font-light font-mono text-emerald-400">
-                          ₹{selectedReportBranch.revenue.toLocaleString('en-IN', {minimumFractionDigits: 2})}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Detailed Product Breakdown */}
-                <div>
-                  <h3 className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-6 pb-2 border-b border-white/10">Product Breakdown</h3>
-                  <div className="glass rounded-2xl overflow-hidden border border-white/5">
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="border-b border-white/5 text-[10px] uppercase tracking-wider text-zinc-500 bg-white/[0.02]">
-                          <th className="px-5 py-4 font-medium">Product</th>
-                          <th className="px-5 py-4 font-medium">Category</th>
-                          <th className="px-5 py-4 font-medium text-right">Quantity</th>
-                          <th className="px-5 py-4 font-medium text-right">Reorder Level</th>
-                          <th className="px-5 py-4 font-medium">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5 text-sm">
-                        {inventory.filter(i => i.branchId === selectedReportBranch.id).map((item, idx) => {
-                          const prod = products.find(p => (p._id || p.id) === item.productId);
-                          if (!prod) return null;
-                          const isLowStock = item.quantity < item.reorderPoint;
-                          return (
-                            <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
-                              <td className="px-5 py-4 font-medium text-zinc-200">{prod.name}</td>
-                              <td className="px-5 py-4 text-zinc-500">{prod.category}</td>
-                              <td className="px-5 py-4 text-right font-mono">{item.quantity}</td>
-                              <td className="px-5 py-4 text-right font-mono text-zinc-600">{item.reorderPoint}</td>
-                              <td className="px-5 py-4">
-                                <span className={`inline-block px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider ${isLowStock ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
-                                  {isLowStock ? 'Low' : 'Normal'}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+              <div className="p-8 space-y-4">
+                <div className="flex justify-between"><span className="text-zinc-400">Total Products</span><span>{selectedReportBranch.totalProducts}</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">Low Stock</span><span>{selectedReportBranch.lowStock}</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">Stock Value</span><span>{formatCurrency(selectedReportBranch.stockValue || 0)}</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">Transactions</span><span>{selectedReportBranch.totalSales}</span></div>
+                <div className="flex justify-between"><span className="text-zinc-400">Revenue</span><span>{formatCurrency(selectedReportBranch.revenue || 0)}</span></div>
               </div>
-
-              {/* Report Footer / Actions */}
-              <div className="p-6 md:px-12 md:py-8 border-t border-white/10 bg-white/[0.02] flex justify-end gap-4">
-                <button 
-                  onClick={() => setSelectedReportBranch(null)} 
-                  className="px-6 py-3 rounded-xl border border-white/10 hover:bg-white/5 transition-colors text-sm font-medium"
-                >
-                  Close
-                </button>
-                <button 
-                  onClick={() => handleDownloadBranchReport(selectedReportBranch)}
-                  disabled={isDownloading}
-                  className="px-6 py-3 bg-white text-black hover:bg-zinc-200 rounded-xl flex items-center gap-2 text-sm font-medium transition-all"
-                >
-                  {isDownloading ? (
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                      className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full"
-                    />
-                  ) : (
-                    <Download className="w-4 h-4" />
-                  )}
-                  {isDownloading ? 'Generating...' : 'Download Branch Report'}
+              <div className="p-6 border-t border-white/10 bg-white/[0.02] flex justify-end gap-4">
+                <button onClick={() => setSelectedReportBranch(null)} className="px-6 py-3 rounded-xl border border-white/10 hover:bg-white/5 transition-colors text-sm font-medium">Close</button>
+                <button onClick={() => handleDownloadBranchReport(selectedReportBranch)} className="px-6 py-3 bg-white text-black hover:bg-zinc-200 rounded-xl flex items-center gap-2 text-sm font-medium transition-all">
+                  <Download className="w-4 h-4" /> Download Branch Report
                 </button>
               </div>
             </motion.div>
@@ -1643,7 +1539,6 @@ const ReportsPage = () => {
 const AdminBranches = () => {
   const { branches, inventory, products, addBranch } = useInventory();
   const location = useLocation();
-  const navigate = useNavigate();
   const [showAddModal, setShowAddModal] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchLoc, setNewBranchLoc] = useState('');
@@ -1658,16 +1553,6 @@ const AdminBranches = () => {
       if (target) setSelectedBranch(target);
     }
   }, [location.state, branches]);
-
-  // Close the detail modal and return to the originating page (e.g. Dashboard)
-  const handleCloseDetail = () => {
-    setSelectedBranch(null);
-    const returnTo = location.state?.returnTo;
-    if (returnTo) {
-      // Navigate back and clear the router state so the modal won't re-open
-      navigate(returnTo, { replace: true, state: {} });
-    }
-  };
 
   const handleAddBranch = () => {
     if (!newBranchName || !newBranchLoc) return;
@@ -1685,21 +1570,17 @@ const AdminBranches = () => {
 
   const getBranchMetrics = (branchId) => {
     const branchInv = inventory.filter(i => i.branchId === branchId);
-    const lowStock = branchInv.filter(i => i.quantity < i.reorderPoint && i.quantity > 0).length;
-    const critical = branchInv.filter(i => i.quantity === 0 || i.quantity < Math.floor(i.reorderPoint * 0.4)).length;
+    const lowStock = branchInv.filter(i => (i.quantity || 0) < (i.reorderPoint || 0)).length;
     const totalValue = branchInv.reduce((sum, item) => {
-      const prod = products.find(p => (p._id || p.id) === item.productId);
+      const prod = products.find(p => (p._id || p.id) === (item.productId?._id || item.productId));
       return sum + (prod?.price || 0) * item.quantity;
     }, 0);
 
-    let health = 'healthy';
-    if (critical > 1) health = 'critical';
-    else if (lowStock > 2) health = 'low';
+    const health = lowStock > 0 ? 'warning' : 'good';
 
     return {
       totalProducts: branchInv.length,
       lowStock,
-      critical,
       totalValue: Math.round(totalValue),
       health
     };
@@ -1767,8 +1648,8 @@ const AdminBranches = () => {
                   <div className="uppercase tracking-[2px] text-xs text-cyan-400 mb-1">{branch.location}</div>
                   <div className="text-4xl font-light tracking-tighter group-hover:text-cyan-300 transition">{branch.name}</div>
                 </div>
-                <div className={`px-4 py-1 text-xs rounded-full font-medium flex items-center gap-1.5 ${metrics.health === 'healthy' ? 'bg-emerald-500/10 text-emerald-400' : metrics.health === 'low' ? 'bg-amber-500/10 text-amber-400' : 'bg-red-500/10 text-red-400'}`}>
-                  {metrics.health.toUpperCase()}
+                <div className={`px-4 py-1 text-xs rounded-full font-medium flex items-center gap-1.5 ${metrics.health === 'good' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                  {metrics.health === 'good' ? 'GOOD' : 'WARNING'}
                 </div>
               </div>
 
@@ -1787,9 +1668,9 @@ const AdminBranches = () => {
                 </div>
               </div>
 
-              <div className="mt-8 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                <div className={`h-full ${metrics.health === 'critical' ? 'bg-red-500 w-[82%]' : metrics.health === 'low' ? 'bg-amber-500 w-[55%]' : 'bg-emerald-400 w-[95%]'}`} />
-              </div>
+                <div className="mt-8 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <div className={`h-full ${metrics.health === 'good' ? 'bg-emerald-400 w-[95%]' : 'bg-amber-500 w-[55%]'}`} />
+                </div>
             </motion.div>
           );
         })}
@@ -1804,7 +1685,7 @@ const AdminBranches = () => {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             className="fixed inset-0 z-[100] flex items-start justify-center bg-black/75 backdrop-blur-sm overflow-y-auto py-10 px-4"
-            onClick={(e) => { if (e.target === e.currentTarget) handleCloseDetail(); }}
+            onClick={(e) => { if (e.target === e.currentTarget) setSelectedBranch(null); }}
           >
             <motion.div
               initial={{ opacity: 0, y: 32 }}
@@ -1821,10 +1702,10 @@ const AdminBranches = () => {
                   <div className="text-zinc-400 mt-2 uppercase tracking-[2px] text-xs">{selectedBranch.location}</div>
                 </div>
                 <button
-                  onClick={handleCloseDetail}
+                  onClick={() => setSelectedBranch(null)}
                   className="text-zinc-500 hover:text-white text-2xl leading-none mt-1 transition-colors"
                 >
-                  ✕
+                  ×
                 </button>
               </div>
 
@@ -1844,7 +1725,7 @@ const AdminBranches = () => {
                   {[
                     { label: "TOTAL PRODUCTS", val: selectedMetrics.totalProducts, unit: "" },
                     { label: "LOW STOCK", val: selectedMetrics.lowStock, unit: "ITEMS" },
-                    { label: "STOCK VALUE", val: `₹${selectedMetrics.totalValue.toLocaleString('en-IN')}`, unit: "" }
+                    { label: "STOCK VALUE", val: formatCurrency(selectedMetrics.totalValue), unit: "" }
                   ].map((kpi, idx) => (
                     <div key={idx} className="glass p-8 rounded-3xl text-center">
                       <div className="text-xs tracking-widest text-zinc-400 mb-2">{kpi.label}</div>
@@ -1971,7 +1852,7 @@ const AdminUsers = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [optionsMenuId, setOptionsMenuId] = useState(null);
 
-  const API_BASE = `${API}/api`;
+  const API_BASE = 'http://localhost:5000/api';
 
   const fetchUsers = async () => {
     try {
@@ -2148,7 +2029,7 @@ const AdminUsers = () => {
           <div key={user._id} className="flex px-8 py-6 items-center justify-between group hover:bg-white/5 transition relative">
             <div className="flex gap-6 items-center w-1/3">
               <div className="w-12 h-12 rounded-2xl bg-zinc-800 flex items-center justify-center text-2xl relative">
-                 👤
+                 <Users className="w-5 h-5 text-zinc-300" />
                  <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 border-2 border-[#121415] rounded-full ${user.status === 'inactive' ? 'bg-zinc-500' : 'bg-emerald-500'}`} />
               </div>
               <div>
@@ -2363,3 +2244,9 @@ const App = () => {
 };
 
 export default App;
+
+
+
+
+
+

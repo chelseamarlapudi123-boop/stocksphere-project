@@ -1,6 +1,5 @@
-// Centralized API base URL — sourced from VITE_API_URL in .env
-// Usage: import API from '../utils/api';
-//        fetch(`${API}/api/your-endpoint`)
-const API = import.meta.env.VITE_API_URL;
+﻿// Centralized API base URL for local development.
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export default API;
+

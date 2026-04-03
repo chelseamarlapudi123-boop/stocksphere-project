@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { AuthContext } from './auth-context';
 import API from '../utils/api';
 
@@ -31,7 +31,7 @@ export const AuthProvider = ({ children }) => {
       });
       const data = await response.json();
       if (!response.ok) {
-        const detail = data.error ? ` — ${data.error}` : '';
+        const detail = data.error ? ` - ${data.error}` : '';
         throw new Error((data.message || 'Registration failed') + detail);
       }
       return { success: true, data };
@@ -51,7 +51,7 @@ export const AuthProvider = ({ children }) => {
       const data = await response.json();
 
       if (!response.ok) {
-        const detail = data.error ? ` — ${data.error}` : '';
+        const detail = data.error ? ` - ${data.error}` : '';
         throw new Error((data.message || 'Login failed') + detail);
       }
 
@@ -86,4 +86,5 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
+
 

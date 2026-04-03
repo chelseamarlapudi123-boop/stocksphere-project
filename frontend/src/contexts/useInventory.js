@@ -1,4 +1,4 @@
-import { useContext } from 'react';
+﻿import { useContext } from 'react';
 import { InventoryContext } from './inventory-context';
 export const useInventory = () => {
     const context = useContext(InventoryContext);
@@ -7,3 +7,4 @@ export const useInventory = () => {
     }
     return context;
 };
+
