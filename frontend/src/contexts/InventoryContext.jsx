@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { initialInventory, initialSales, products as initialProducts, branches as initialBranches } from '../data/mockData';
 import { InventoryContext } from './inventory-context';
+import API from '../utils/api';
 
 const generateEntityId = (prefix) => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -17,7 +18,7 @@ export const InventoryProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const API_BASE = 'http://localhost:5000/api';
+  const API_BASE = `${API}/api`;
 
   const fetchData = async () => {
     try {

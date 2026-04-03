@@ -28,13 +28,13 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// 🔥 TEMP DEBUG (comment routes if crash continues)
-// app.use('/api/reports', reportsRoute);
-// app.use('/api/users', usersRoute);
-// app.use('/api/auth', authRoute);
-// app.use('/api/products', productsRoute);
-// app.use('/api/inventory', inventoryRoute);
-// app.use('/api/sales', salesRoute);
+// API Routes
+app.use('/api/reports', reportsRoute);
+app.use('/api/users', usersRoute);
+app.use('/api/auth', authRoute);
+app.use('/api/products', productsRoute);
+app.use('/api/inventory', inventoryRoute);
+app.use('/api/sales', salesRoute);
 
 // Health route (VERY important for Render)
 app.get('/', (req, res) => {

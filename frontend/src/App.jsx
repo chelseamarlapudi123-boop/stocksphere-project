@@ -13,6 +13,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { InventoryProvider } from './contexts/InventoryContext';
 import { useAuth } from './contexts/useAuth';
 import { useInventory } from './contexts/useInventory';
+import API from './utils/api';
 
 import { generateForecast } from './utils/forecast';
 import { exportToCSV, generateInventoryReport, downloadPortfolioCSV } from './utils/export';
@@ -21,7 +22,7 @@ import LandingPage from './components/LandingPage';
 import LoginPage from './components/LoginPage';
 import RegisterPage from './components/RegisterPage';
 
-// API_BASE removed for mock-only mode
+
 
 // Helper: format numbers using the Indian lakh-crore system
 // e.g. 458000 → "4,58,000" | 92000 → "92,000"
@@ -1948,7 +1949,7 @@ const AdminUsers = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [optionsMenuId, setOptionsMenuId] = useState(null);
 
-  const API_BASE = 'http://localhost:5000/api';
+  const API_BASE = `${API}/api`;
 
   const fetchUsers = async () => {
     try {

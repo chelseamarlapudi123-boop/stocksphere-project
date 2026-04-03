@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AuthContext } from './auth-context';
+import API from '../utils/api';
 
 const USER_STORAGE_KEY = 'currentUser';
 const TOKEN_STORAGE_KEY = 'authToken';
@@ -19,7 +20,7 @@ export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(getStoredUser);
   const [authToken, setAuthToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY));
 
-  const API_BASE = 'http://localhost:5000/api';
+  const API_BASE = `${API}/api`;
 
   const register = async (payload) => {
     try {
