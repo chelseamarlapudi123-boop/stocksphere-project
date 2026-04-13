@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Package, TrendingUp, Users, AlertTriangle, BarChart3,
   Plus, Minus, Download, RefreshCw, LogOut, Building2, FileText,
-  Search, Edit2, Trash2, Key, Power, MoreVertical, ChevronLeft, ChevronRight, CheckCircle, XCircle
+  Search, Edit2, Trash2, Key, Power, MoreVertical, ChevronLeft, ChevronRight, CheckCircle, XCircle,
+  Activity, Pause, Play
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ComposedChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
@@ -17,6 +18,12 @@ import { useInventory } from './contexts/useInventory';
 import { exportToCSV, downloadPortfolioCSV } from './utils/export';
 import API from './utils/api';
 import { formatCurrency } from './utils/formatters';
+import {
+  GLOBAL_LIVE_CONFIG,
+  BRANCH_LIVE_CONFIG,
+  createInitialLiveState,
+  simulateNextLiveState,
+} from './utils/liveSimulation';
 import LandingPage from './components/LandingPage';
 import LoginPage from './components/LoginPage';
 import RegisterPage from './components/RegisterPage';
@@ -41,6 +48,14 @@ const Navbar = () => {
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const normalizedRole = String(currentUser?.role || '').toUpperCase();
+  const isBranchManager = normalizedRole === 'MANAGER' || normalizedRole === 'BRANCH_MANAGER';
+  const branchParts = [currentUser?.branch?.name, currentUser?.branch?.location].filter(Boolean);
+  const branchLabel = isBranchManager
+    ? (branchParts.length > 0
+      ? branchParts.join(', ')
+      : 'Branch not assigned')
+    : '';
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -137,8 +152,17 @@ const Navbar = () => {
           {/* User */}
           <div className="flex items-center gap-3 pl-4 border-l border-white/10">
             <div className="text-right pr-3">
-              <div className="font-medium text-sm leading-none">{currentUser?.name}</div>
-              <div className="text-[10px] text-cyan-400 mt-px">{currentUser?.role}</div>
+              <div className="font-medium text-sm leading-none">
+                {isBranchManager ? `${currentUser?.name} (Manager)` : currentUser?.name}
+              </div>
+              {isBranchManager ? (
+                <div className="text-[11px] text-zinc-400 mt-1 flex items-center justify-end gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-zinc-500" />
+                  <span>{branchLabel}</span>
+                </div>
+              ) : (
+                <div className="text-[10px] text-cyan-400 mt-px">{currentUser?.role}</div>
+              )}
             </div>
 
             <div
@@ -186,19 +210,21 @@ const Sidebar = () => {
   const { isAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const currentPath = location.pathname.replace('/dashboard', '').replace(/^\//, '') || 'dashboard';
+  const currentPath = location.pathname;
+  const liveDashboardPath = isAdmin ? '/live-dashboard' : '/branch/live-dashboard';
 
   const menuItems = [
-    { icon: BarChart3, label: "Dashboard", path: "dashboard" },
-    { icon: Package, label: "Inventory", path: "inventory" },
-    { icon: TrendingUp, label: "Forecasting", path: "forecasting" },
-    { icon: Download, label: "Reports", path: "reports" },
+    { icon: BarChart3, label: "Dashboard", to: "/dashboard", match: ['/dashboard'] },
+    { icon: Package, label: "Inventory", to: "/dashboard/inventory", match: ['/dashboard/inventory'] },
+    { icon: TrendingUp, label: "Forecasting", to: "/dashboard/forecasting", match: ['/dashboard/forecasting'] },
+    { icon: Download, label: "Reports", to: "/dashboard/reports", match: ['/dashboard/reports'] },
+    { icon: Activity, label: "Live Dashboard", to: liveDashboardPath, match: ['/live-dashboard', '/branch/live-dashboard'] },
   ];
 
   if (isAdmin) {
     menuItems.push(
-      { icon: Users, label: "Branches", path: "branches" },
-      { icon: Users, label: "Users", path: "users" }
+      { icon: Users, label: "Branches", to: "/dashboard/branches", match: ['/dashboard/branches'] },
+      { icon: Users, label: "Users", to: "/dashboard/users", match: ['/dashboard/users'] }
     );
   }
 
@@ -211,11 +237,11 @@ const Sidebar = () => {
       <div className="space-y-1 px-3">
         {menuItems.map((item, index) => {
           const Icon = item.icon;
-          const isActive = currentPath === item.path;
+          const isActive = item.match.includes(currentPath);
           return (
             <button
               key={index}
-              onClick={() => navigate(item.path === 'dashboard' ? '/dashboard' : `/dashboard/${item.path}`)}
+              onClick={() => navigate(item.to)}
               className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all text-left ${isActive
                 ? 'bg-white text-black shadow-lg'
                 : 'hover:bg-white/5 text-zinc-400 hover:text-white'}`}
@@ -229,6 +255,143 @@ const Sidebar = () => {
 
       <div className="px-6 mt-auto absolute bottom-8 text-xs text-zinc-500">
         Powered by real-time analytics
+      </div>
+    </div>
+  );
+};
+
+const LiveDashboardPage = ({ mode = 'global' }) => {
+  const isBranchMode = mode === 'branch';
+  const liveConfig = isBranchMode ? BRANCH_LIVE_CONFIG : GLOBAL_LIVE_CONFIG;
+  const [liveState, setLiveState] = useState(() => createInitialLiveState(liveConfig));
+  const [isPaused, setIsPaused] = useState(false);
+
+  useEffect(() => {
+    setLiveState(createInitialLiveState(liveConfig));
+    setIsPaused(false);
+  }, [liveConfig]);
+
+  useEffect(() => {
+    if (isPaused) {
+      return undefined;
+    }
+
+    const timer = setInterval(() => {
+      setLiveState((prev) => simulateNextLiveState(prev, liveConfig));
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [isPaused, liveConfig]);
+
+  const inventoryTrendLabel = liveState.inventoryDelta >= 0
+    ? `+${toIndianFormat(Math.abs(liveState.inventoryDelta))}`
+    : `${toIndianFormat(liveState.inventoryDelta)}`;
+
+  return (
+    <div className="p-8 pt-20 max-w-screen-2xl mx-auto">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+        <div>
+          <h1 className="text-5xl tracking-tighter">
+            {isBranchMode ? 'Branch Live Dashboard' : 'Live Dashboard'}
+          </h1>
+          <p className="text-sm text-zinc-400 mt-2">
+            Simulated state-based updates with realistic inventory and sales flow.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="glass rounded-2xl px-4 py-3 flex items-center gap-3">
+            <motion.span
+              animate={isPaused ? { scale: 1 } : { scale: [1, 1.12, 1] }}
+              transition={{ duration: 1.5, repeat: isPaused ? 0 : Infinity }}
+              className={`w-2.5 h-2.5 rounded-full ${isPaused ? 'bg-amber-400' : 'bg-emerald-400'}`}
+            />
+            <div>
+              <div className={`text-sm font-medium ${isPaused ? 'text-amber-400' : 'text-emerald-400'}`}>
+                {isPaused ? 'Live Mode Paused' : 'Live Mode Active'}
+              </div>
+              <div className="text-xs text-zinc-400">
+                {isPaused ? `Last update at ${new Date(liveState.lastUpdatedAt).toLocaleTimeString()}` : 'Updating every 3 seconds'}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsPaused((prev) => !prev)}
+            className="px-4 py-3 rounded-2xl border border-white/10 hover:bg-white/5 text-sm font-medium flex items-center gap-2"
+          >
+            {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+            {isPaused ? 'Resume' : 'Pause'}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <KPICard
+          title="TOTAL SALES"
+          value={toIndianFormat(liveState.sales)}
+          change={toIndianFormat(liveState.salesDelta)}
+          icon={<TrendingUp className="w-6 h-6 text-emerald-400" />}
+          accent="emerald"
+        />
+        <KPICard
+          title="REVENUE"
+          value={formatCurrency(liveState.revenue)}
+          change={formatCurrency(liveState.revenueDelta)}
+          icon={<BarChart3 className="w-6 h-6 text-indigo-400" />}
+          accent="indigo"
+        />
+        <KPICard
+          title="ORDERS"
+          value={toIndianFormat(liveState.orders)}
+          change={toIndianFormat(liveState.orderDelta)}
+          icon={<FileText className="w-6 h-6 text-amber-400" />}
+          accent="amber"
+        />
+        <KPICard
+          title="INVENTORY"
+          value={toIndianFormat(liveState.inventory)}
+          change={inventoryTrendLabel}
+          icon={<Package className="w-6 h-6 text-rose-400" />}
+          accent="rose"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        <div className="glass rounded-3xl p-8">
+          <div className="mb-5">
+            <div className="font-semibold text-xl">Sales and Orders Timeline</div>
+            <div className="text-sm text-zinc-400">Continuous incremental points over the last 12 ticks</div>
+          </div>
+          <ResponsiveContainer width="100%" height={290}>
+            <ComposedChart data={liveState.series}>
+              <CartesianGrid strokeDasharray="2 2" stroke="#27272a" />
+              <XAxis dataKey="time" stroke="#52525b" />
+              <YAxis yAxisId="sales" stroke="#52525b" />
+              <YAxis yAxisId="orders" orientation="right" stroke="#52525b" />
+              <Tooltip contentStyle={{ backgroundColor: '#18181b', border: 'none', borderRadius: '8px' }} />
+              <Line yAxisId="sales" type="monotone" dataKey="sales" stroke="#4f46e5" strokeWidth={2.5} dot={false} />
+              <Area yAxisId="orders" type="monotone" dataKey="orders" stroke="#f59e0b" fill="#f59e0b33" strokeWidth={2} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="glass rounded-3xl p-8">
+          <div className="mb-5">
+            <div className="font-semibold text-xl">Revenue and Inventory Flow</div>
+            <div className="text-sm text-zinc-400">Sales steadily increase while inventory drops and restocks naturally</div>
+          </div>
+          <ResponsiveContainer width="100%" height={290}>
+            <ComposedChart data={liveState.series}>
+              <CartesianGrid strokeDasharray="2 2" stroke="#27272a" />
+              <XAxis dataKey="time" stroke="#52525b" />
+              <YAxis yAxisId="revenue" stroke="#52525b" />
+              <YAxis yAxisId="inventory" orientation="right" stroke="#52525b" />
+              <Tooltip contentStyle={{ backgroundColor: '#18181b', border: 'none', borderRadius: '8px' }} />
+              <Line yAxisId="revenue" type="monotone" dataKey="revenue" stroke="#14b8a6" strokeWidth={2.5} dot={false} />
+              <Area yAxisId="inventory" type="monotone" dataKey="inventory" stroke="#e11d48" fill="#e11d4826" strokeWidth={2} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   );
@@ -461,7 +624,6 @@ const Dashboard = () => {
         </div>
 
         <div className="lg:col-span-12 mt-2">
-          <div className="text-xl font-semibold mb-4 px-1">Branch Performance</div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
             {dashboardBranchStatus.map((branch, index) => (
               <motion.div
@@ -1331,6 +1493,39 @@ const ReportsPage = () => {
   };
 
   const branchPerformanceData = reportPayload?.branchPerformance || [];
+  const visibleBranches = branches.filter((b) => !isManager || b.id === currentUser?.branchId);
+  const branchPerformanceById = new Map(
+    branchPerformanceData.map((b) => [String(b.id || b.branchId || ''), b])
+  );
+  const detailedBranchCards = visibleBranches.map((branch) => {
+    const perf = branchPerformanceById.get(String(branch.id)) || {};
+    const branchRows = (reportPayload?.inventoryReport || []).filter(
+      (row) => String(row.branchId) === String(branch.id)
+    );
+    const derivedProducts = branchRows.length;
+    const derivedLowStock = branchRows.filter((row) => (row.quantity || 0) < (row.reorderPoint || 0)).length;
+    const derivedStockValue = branchRows.reduce(
+      (sum, row) => sum + ((row.quantity || 0) * (row.price || 0)),
+      0
+    );
+    const branchSalesRows = (reportPayload?.recentSales || []).filter(
+      (sale) => String(sale.branchId) === String(branch.id)
+    );
+    const derivedTransactions = branchSalesRows.length;
+    const derivedRevenue = branchSalesRows.reduce((sum, sale) => sum + (sale.revenue || 0), 0);
+
+    return {
+      id: branch.id,
+      name: perf.name || branch.name,
+      location: branch.location || 'N/A',
+      manager: branch.managerName || branch.manager || 'Unassigned',
+      totalProducts: perf.totalProducts || derivedProducts,
+      lowStock: perf.lowStock || derivedLowStock,
+      stockValue: perf.stockValue || Math.round(derivedStockValue),
+      totalSales: perf.totalSales || derivedTransactions,
+      revenue: perf.revenue || Math.round(derivedRevenue)
+    };
+  });
   const reportData = (reportPayload?.inventoryReport || []).map((row) => ({
     Branch: row.branchId,
     Product: row.productName || 'Unknown',
@@ -1368,9 +1563,10 @@ const ReportsPage = () => {
 
   const handleDownloadBranchReport = (branchData) => {
     const branchRows = (reportPayload?.inventoryReport || []).filter((row) => row.branchId === branchData.id);
+    const branchMeta = branches.find((b) => b.id === branchData.id);
     const branchDetails = {
       name: branchData.name,
-      manager: 'Unassigned',
+      manager: branchMeta?.managerName || branchMeta?.manager || 'Unassigned',
       totalProducts: branchData.totalProducts || 0,
       lowStock: branchData.lowStock || 0,
       totalValue: branchData.stockValue || 0,
@@ -1387,6 +1583,13 @@ const ReportsPage = () => {
     downloadPortfolioCSV(branchDetails, `stocksphere-branch-report-${branchData.name.toLowerCase().replace(/\s+/g, '-')}.csv`);
     toast.success('Branch report downloaded successfully.');
   };
+
+  const getBranchInventoryRows = (branchId) => (
+    reportPayload?.inventoryReport || []
+  ).filter((row) => String(row.branchId) === String(branchId));
+  const getBranchSalesRows = (branchId) => (
+    reportPayload?.recentSales || []
+  ).filter((sale) => String(sale.branchId) === String(branchId));
 
   return (
     <div className="p-8 pt-20 max-w-screen-2xl mx-auto relative">
@@ -1464,7 +1667,7 @@ const ReportsPage = () => {
           <div className="mt-16">
             <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2"><FileText className="w-5 h-5 text-indigo-400"/> Detailed Branch Reports</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-              {branchPerformanceData.map((branch) => (
+              {detailedBranchCards.map((branch) => (
                 <motion.div
                   key={branch.id}
                   whileHover={{ scale: 1.02, y: -4 }}
@@ -1498,12 +1701,36 @@ const ReportsPage = () => {
                 </motion.div>
               ))}
             </div>
+            {detailedBranchCards.length === 0 && (
+              <div className="mt-6 text-zinc-500 text-sm">No branches found for the selected filters.</div>
+            )}
           </div>
         )}
       </div>
 
       <AnimatePresence>
         {selectedReportBranch && (
+          (() => {
+            const inventoryRows = getBranchInventoryRows(selectedReportBranch.id);
+            const salesRows = getBranchSalesRows(selectedReportBranch.id);
+            const derivedKpis = {
+              totalProducts: inventoryRows.length,
+              lowStock: inventoryRows.filter((row) => (row.quantity || 0) < (row.reorderPoint || 0)).length,
+              stockValue: Math.round(
+                inventoryRows.reduce((sum, row) => sum + ((row.quantity || 0) * (row.price || 0)), 0)
+              ),
+              totalSales: salesRows.length,
+              revenue: Math.round(salesRows.reduce((sum, row) => sum + (row.revenue || 0), 0))
+            };
+            const resolvedKpis = {
+              totalProducts: selectedReportBranch.totalProducts || derivedKpis.totalProducts,
+              lowStock: selectedReportBranch.lowStock || derivedKpis.lowStock,
+              stockValue: selectedReportBranch.stockValue || derivedKpis.stockValue,
+              totalSales: selectedReportBranch.totalSales || derivedKpis.totalSales,
+              revenue: selectedReportBranch.revenue || derivedKpis.revenue
+            };
+
+            return (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[200] p-4 md:p-8 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1514,13 +1741,79 @@ const ReportsPage = () => {
               <div className="p-8 border-b border-white/5">
                 <div className="text-3xl tracking-tight">{selectedReportBranch.name}</div>
                 <div className="text-sm text-zinc-400 mt-2">Date range: {startDate} to {endDate}</div>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3">
+                    <div className="text-zinc-400">Manager</div>
+                    <div className="mt-1">{selectedReportBranch.manager}</div>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3">
+                    <div className="text-zinc-400">Location</div>
+                    <div className="mt-1">{selectedReportBranch.location}</div>
+                  </div>
+                </div>
               </div>
-              <div className="p-8 space-y-4">
-                <div className="flex justify-between"><span className="text-zinc-400">Total Products</span><span>{selectedReportBranch.totalProducts}</span></div>
-                <div className="flex justify-between"><span className="text-zinc-400">Low Stock</span><span>{selectedReportBranch.lowStock}</span></div>
-                <div className="flex justify-between"><span className="text-zinc-400">Stock Value</span><span>{formatCurrency(selectedReportBranch.stockValue || 0)}</span></div>
-                <div className="flex justify-between"><span className="text-zinc-400">Transactions</span><span>{selectedReportBranch.totalSales}</span></div>
-                <div className="flex justify-between"><span className="text-zinc-400">Revenue</span><span>{formatCurrency(selectedReportBranch.revenue || 0)}</span></div>
+              <div className="p-8 space-y-6">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                    <div className="text-[10px] uppercase text-zinc-500">Products</div>
+                    <div className="mt-1 text-lg">{resolvedKpis.totalProducts}</div>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                    <div className="text-[10px] uppercase text-zinc-500">Low Stock</div>
+                    <div className="mt-1 text-lg">{resolvedKpis.lowStock}</div>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                    <div className="text-[10px] uppercase text-zinc-500">Stock Value</div>
+                    <div className="mt-1 text-lg">{formatCurrency(resolvedKpis.stockValue || 0)}</div>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                    <div className="text-[10px] uppercase text-zinc-500">Transactions</div>
+                    <div className="mt-1 text-lg">{resolvedKpis.totalSales}</div>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                    <div className="text-[10px] uppercase text-zinc-500">Revenue</div>
+                    <div className="mt-1 text-lg">{formatCurrency(resolvedKpis.revenue || 0)}</div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-sm uppercase tracking-wider text-zinc-400 mb-3">Product-level Breakdown</div>
+                  <div className="max-h-64 overflow-auto rounded-xl border border-white/10">
+                    <table className="w-full text-sm">
+                      <thead className="bg-white/[0.03] sticky top-0">
+                        <tr className="text-zinc-400">
+                          <th className="text-left px-4 py-3 font-medium">Product</th>
+                          <th className="text-left px-4 py-3 font-medium">Category</th>
+                          <th className="text-right px-4 py-3 font-medium">Qty</th>
+                          <th className="text-right px-4 py-3 font-medium">Reorder</th>
+                          <th className="text-right px-4 py-3 font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {getBranchInventoryRows(selectedReportBranch.id).length === 0 ? (
+                          <tr>
+                            <td className="px-4 py-5 text-zinc-500" colSpan={5}>No product rows available for this period.</td>
+                          </tr>
+                        ) : (
+                          getBranchInventoryRows(selectedReportBranch.id).map((row, idx) => {
+                            const isLow = (row.quantity || 0) < (row.reorderPoint || 0);
+                            return (
+                              <tr key={`${row.productId || row.productName || 'product'}-${idx}`} className="border-t border-white/5">
+                                <td className="px-4 py-3">{row.productName || 'Unknown'}</td>
+                                <td className="px-4 py-3 text-zinc-400">{row.category || 'General'}</td>
+                                <td className="px-4 py-3 text-right">{row.quantity || 0}</td>
+                                <td className="px-4 py-3 text-right">{row.reorderPoint || 0}</td>
+                                <td className={`px-4 py-3 text-right ${isLow ? 'text-amber-400' : 'text-emerald-400'}`}>
+                                  {isLow ? 'Low' : 'Healthy'}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
               <div className="p-6 border-t border-white/10 bg-white/[0.02] flex justify-end gap-4">
                 <button onClick={() => setSelectedReportBranch(null)} className="px-6 py-3 rounded-xl border border-white/10 hover:bg-white/5 transition-colors text-sm font-medium">Close</button>
@@ -1530,6 +1823,8 @@ const ReportsPage = () => {
               </div>
             </motion.div>
           </div>
+            );
+          })()
         )}
       </AnimatePresence>
     </div>
@@ -1537,12 +1832,15 @@ const ReportsPage = () => {
 };
 
 const AdminBranches = () => {
-  const { branches, inventory, products, addBranch } = useInventory();
+  const { branches, inventory, products, addBranch, updateBranch, deleteBranch } = useInventory();
   const location = useLocation();
   const [showAddModal, setShowAddModal] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchLoc, setNewBranchLoc] = useState('');
   const [newBranchManager, setNewBranchManager] = useState('');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editData, setEditData] = useState(null);
+  const [activeMenu, setActiveMenu] = useState(null);
   const [selectedBranch, setSelectedBranch] = useState(null);
   const [branchFilter, setBranchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -1554,18 +1852,95 @@ const AdminBranches = () => {
     }
   }, [location.state, branches]);
 
-  const handleAddBranch = () => {
+  useEffect(() => {
+    if (!selectedBranch) return;
+    const latest = branches.find((b) => b.id === selectedBranch.id);
+    if (latest) setSelectedBranch(latest);
+  }, [branches, selectedBranch]);
+
+  const handleAddBranch = async () => {
     if (!newBranchName || !newBranchLoc) return;
-    addBranch({
-      name: newBranchName,
-      location: newBranchLoc,
-      manager: newBranchManager || "Unassigned",
+    try {
+      await addBranch({
+        name: newBranchName,
+        location: newBranchLoc,
+        manager: newBranchManager || "Unassigned",
+      });
+      setShowAddModal(false);
+      setNewBranchName('');
+      setNewBranchLoc('');
+      setNewBranchManager('');
+      toast.success("New branch added successfully");
+    } catch (error) {
+      toast.error(error.message || 'Failed to create branch');
+    }
+  };
+
+  const handleEdit = (branch) => {
+    setEditData({
+      _id: branch._id,
+      id: branch.id,
+      name: branch.name || '',
+      location: branch.location || '',
+      manager: branch.manager || ''
     });
-    setShowAddModal(false);
-    setNewBranchName('');
-    setNewBranchLoc('');
-    setNewBranchManager('');
-    toast.success("New branch added successfully");
+    setShowEditModal(true);
+    setActiveMenu(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editData?.name || !editData?.location) {
+      toast.error('Branch name and location are required');
+      return;
+    }
+    try {
+      const branchMongoId = editData._id || branches.find((b) => b.id === editData.id)?._id;
+      if (!branchMongoId) {
+        toast.error('Unable to resolve branch ID for update');
+        return;
+      }
+
+      await updateBranch(branchMongoId, {
+        name: editData.name,
+        location: editData.location,
+        manager: editData.manager || 'Unassigned'
+      });
+      setShowEditModal(false);
+      setEditData(null);
+      toast.success('Branch updated successfully');
+    } catch (error) {
+      toast.error(error.message || 'Failed to update branch');
+    }
+  };
+
+  const handleDelete = async (branch) => {
+    const hasActiveInventory = inventory.some((item) => item.branchId === branch.id);
+    if (hasActiveInventory) {
+      toast.error('Cannot delete branch with active inventory');
+      setActiveMenu(null);
+      return;
+    }
+
+    const confirmed = window.confirm('Are you sure you want to delete this branch?');
+    if (!confirmed) {
+      setActiveMenu(null);
+      return;
+    }
+
+    try {
+      const branchMongoId = branch._id || branches.find((b) => b.id === branch.id)?._id;
+      if (!branchMongoId) {
+        toast.error('Unable to resolve branch ID for delete');
+        return;
+      }
+
+      await deleteBranch(branchMongoId);
+      if (selectedBranch?.id === branch.id) setSelectedBranch(null);
+      setActiveMenu(null);
+      toast.success('Branch deleted');
+    } catch (error) {
+      toast.error(error.message || 'Failed to delete branch');
+    }
   };
 
   const getBranchMetrics = (branchId) => {
@@ -1607,7 +1982,7 @@ const AdminBranches = () => {
     .sort((a, b) => b.quantity - a.quantity);
 
   return (
-    <div className="p-8 pt-20 max-w-screen-2xl mx-auto relative">
+    <div className="p-8 pt-20 max-w-screen-2xl mx-auto relative" onClick={() => setActiveMenu(null)}>
       <div className="flex items-center justify-between mb-9">
         <div>
           <div className="flex items-center gap-4">
@@ -1636,13 +2011,43 @@ const AdminBranches = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {filteredBranches.map((branch, index) => {
           const metrics = getBranchMetrics(branch.id);
+          const hasActiveInventory = inventory.some((item) => item.branchId === branch.id);
+          const menuId = branch._id || branch.id;
           return (
             <motion.div
-              key={index}
+              key={branch._id || branch.id || index}
               whileHover={{ scale: 1.015 }}
               onClick={() => setSelectedBranch(branch)}
-              className="glass rounded-3xl p-8 card-hover cursor-pointer border border-white/10 hover:border-cyan-400/30 group"
+              className="glass rounded-3xl p-8 card-hover cursor-pointer border border-white/10 hover:border-cyan-400/30 group relative"
             >
+              <div className="absolute top-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => setActiveMenu((prev) => (prev === menuId ? null : menuId))}
+                  className="w-9 h-9 rounded-xl border border-white/10 bg-zinc-950/80 hover:bg-white/10 flex items-center justify-center text-zinc-300 hover:text-white transition"
+                  aria-label="Branch actions"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </button>
+
+                {activeMenu === menuId && (
+                  <div className="absolute top-11 right-0 w-40 rounded-xl border border-white/10 bg-[#111827] shadow-2xl overflow-hidden">
+                    <button
+                      onClick={() => handleEdit(branch)}
+                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-white/10 transition"
+                    >
+                      Edit Branch
+                    </button>
+                    <button
+                      onClick={() => handleDelete(branch)}
+                      disabled={hasActiveInventory}
+                      className={`w-full text-left px-4 py-2.5 text-sm transition ${hasActiveInventory ? 'text-zinc-600 cursor-not-allowed' : 'text-rose-400 hover:bg-rose-500/10'}`}
+                    >
+                      Delete Branch
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="flex justify-between items-start">
                 <div>
                   <div className="uppercase tracking-[2px] text-xs text-cyan-400 mb-1">{branch.location}</div>
@@ -1656,7 +2061,7 @@ const AdminBranches = () => {
               <div className="mt-8 flex gap-8">
                 <div>
                   <div className="text-xs text-zinc-400">MANAGER</div>
-                  <div className="font-medium mt-1.5">{branch.manager}</div>
+                  <div className="font-medium mt-1.5">{branch.managerName || branch.manager || "Unassigned"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-400">PRODUCTS</div>
@@ -1714,7 +2119,7 @@ const AdminBranches = () => {
                 <div className="glass p-8 rounded-3xl">
                   <div className="grid grid-cols-4 gap-8 text-sm">
                     <div><span className="text-zinc-400 text-xs uppercase tracking-widest block mb-2">Location</span>{selectedBranch.location}</div>
-                    <div><span className="text-zinc-400 text-xs uppercase tracking-widest block mb-2">Manager</span>{selectedBranch.manager}</div>
+                    <div><span className="text-zinc-400 text-xs uppercase tracking-widest block mb-2">Manager</span>{selectedBranch.managerName || selectedBranch.manager || "Unassigned"}</div>
                     <div><span className="text-zinc-400 text-xs uppercase tracking-widest block mb-2">Contact</span>(212) 555-0198</div>
                     <div><span className="text-zinc-400 text-xs uppercase tracking-widest block mb-2">Last Audit</span>{new Date().toLocaleDateString()}</div>
                   </div>
@@ -1823,6 +2228,49 @@ const AdminBranches = () => {
               <div className="flex gap-3">
                 <button onClick={() => setShowAddModal(false)} className="flex-1 py-4 border border-white/20 rounded-2xl">CANCEL</button>
                 <button onClick={handleAddBranch} className="flex-1 py-4 bg-white text-black rounded-2xl">CREATE BRANCH</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* EDIT BRANCH MODAL */}
+      <AnimatePresence>
+        {showEditModal && editData && (
+          <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/80">
+            <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} className="glass max-w-md w-full p-10 rounded-3xl">
+              <h3 className="text-2xl mb-8">Edit Branch</h3>
+              <input
+                value={editData.name}
+                onChange={(e) => setEditData((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder="Branch Name"
+                className="block w-full mb-4 bg-transparent border-b border-white/30 py-4 text-xl placeholder:text-zinc-500 focus:outline-none"
+              />
+              <input
+                value={editData.location}
+                onChange={(e) => setEditData((prev) => ({ ...prev, location: e.target.value }))}
+                placeholder="City, State"
+                className="block w-full mb-4 bg-transparent border-b border-white/30 py-4 text-xl placeholder:text-zinc-500 focus:outline-none"
+              />
+              <input
+                value={editData.manager}
+                onChange={(e) => setEditData((prev) => ({ ...prev, manager: e.target.value }))}
+                placeholder="Branch Manager Name (optional)"
+                className="block w-full mb-8 bg-transparent border-b border-white/30 py-4 text-xl placeholder:text-zinc-500 focus:outline-none"
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditData(null);
+                  }}
+                  className="flex-1 py-4 border border-white/20 rounded-2xl"
+                >
+                  CANCEL
+                </button>
+                <button onClick={handleSaveEdit} className="flex-1 py-4 bg-white text-black rounded-2xl">
+                  SAVE CHANGES
+                </button>
               </div>
             </motion.div>
           </div>
@@ -2212,6 +2660,34 @@ const DashboardShell = () => {
   );
 };
 
+const LiveDashboardShell = ({ mode = 'global' }) => (
+  <div className="bg-zinc-950 text-white min-h-screen">
+    <Navbar />
+    <div className="flex">
+      <Sidebar />
+      <main className="flex-1 ml-72 min-h-screen">
+        <LiveDashboardPage mode={mode} />
+      </main>
+    </div>
+  </div>
+);
+
+const PlatformLiveRoute = () => {
+  const { currentUser } = useAuth();
+  if (currentUser?.role === 'manager') {
+    return <Navigate to="/branch/live-dashboard" replace />;
+  }
+  return <LiveDashboardShell mode="global" />;
+};
+
+const BranchLiveRoute = () => {
+  const { currentUser } = useAuth();
+  if (currentUser?.role !== 'manager') {
+    return <Navigate to="/live-dashboard" replace />;
+  }
+  return <LiveDashboardShell mode="branch" />;
+};
+
 const AppContent = () => {
   return (
     <Routes>
@@ -2223,6 +2699,22 @@ const AppContent = () => {
         element={(
           <ProtectedRoute>
             <DashboardShell />
+          </ProtectedRoute>
+        )}
+      />
+      <Route
+        path="/live-dashboard"
+        element={(
+          <ProtectedRoute>
+            <PlatformLiveRoute />
+          </ProtectedRoute>
+        )}
+      />
+      <Route
+        path="/branch/live-dashboard"
+        element={(
+          <ProtectedRoute>
+            <BranchLiveRoute />
           </ProtectedRoute>
         )}
       />

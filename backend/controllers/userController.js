@@ -1,10 +1,41 @@
 import User from '../models/User.js';
+import Branch from '../models/Branch.js';
 import bcrypt from 'bcryptjs';
+
+const isBranchManager = (role) => role === 'manager' || role === 'BRANCH_MANAGER';
+
+const attachBranchToUser = async (userDocOrObject) => {
+  const rawUser = typeof userDocOrObject.toObject === 'function'
+    ? userDocOrObject.toObject()
+    : userDocOrObject;
+
+  const { password: _, ...safeUser } = rawUser;
+  if (!isBranchManager(safeUser.role)) {
+    return safeUser;
+  }
+
+  let branch = null;
+  if (safeUser.branchId) {
+    branch = await Branch.findOne({ id: safeUser.branchId }).lean();
+  }
+  if (!branch && safeUser.branchName) {
+    branch = await Branch.findOne({ name: safeUser.branchName }).lean();
+  }
+  if (!branch && safeUser.branch) {
+    branch = await Branch.findById(safeUser.branch).lean();
+  }
+
+  safeUser.branch = branch
+    ? { name: branch.name, location: branch.location }
+    : null;
+  return safeUser;
+};
 
 export const getUsers = async (req, res) => {
   try {
     const users = await User.find().select('-password');
-    res.status(200).json(users);
+    const usersWithBranch = await Promise.all(users.map((user) => attachBranchToUser(user)));
+    res.status(200).json(usersWithBranch);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching users', error: error.message });
   }
@@ -29,7 +60,7 @@ export const addUser = async (req, res) => {
     
     await newUser.save();
     
-    const { password: _, ...userObj } = newUser.toObject();
+    const userObj = await attachBranchToUser(newUser);
     res.status(201).json(userObj);
   } catch (error) {
     res.status(500).json({ message: 'Error adding user', error: error.message });
@@ -57,7 +88,7 @@ export const updateUser = async (req, res) => {
 
     await userToUpdate.save();
 
-    const { password: _, ...userObj } = userToUpdate.toObject();
+    const userObj = await attachBranchToUser(userToUpdate);
     res.status(200).json(userObj);
   } catch (error) {
     res.status(500).json({ message: 'Error updating user', error: error.message });
@@ -84,7 +115,7 @@ export const toggleUserStatus = async (req, res) => {
     user.status = user.status === 'active' ? 'inactive' : 'active';
     await user.save();
 
-    const { password: _, ...userObj } = user.toObject();
+    const userObj = await attachBranchToUser(user);
     res.status(200).json(userObj);
   } catch (error) {
     res.status(500).json({ message: 'Error toggling user status', error: error.message });
@@ -107,7 +138,7 @@ export const syncUser = async (req, res) => {
       await user.save();
     }
     
-    const { password: _, ...userObj } = user.toObject();
+    const userObj = await attachBranchToUser(user);
     res.status(200).json(userObj);
   } catch (error) {
     res.status(500).json({ message: 'Error syncing user', error: error.message });

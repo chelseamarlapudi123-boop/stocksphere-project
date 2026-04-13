@@ -6,7 +6,9 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   role: { type: String, enum: ['admin', 'manager'], required: true },
-  branchId: { type: String }, // Optional, required only for 'manager'
+  branchId: { type: String }, // Primary branch linkage used in this app (maps to Branch.id)
+  branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch' }, // Optional ObjectId linkage
+  branchName: { type: String }, // Optional fallback linkage by branch name
   status: { type: String, enum: ['active', 'inactive'], default: 'active' },
 }, { timestamps: true });
 

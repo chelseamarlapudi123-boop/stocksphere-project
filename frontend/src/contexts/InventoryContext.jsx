@@ -155,6 +155,44 @@ export const InventoryProvider = ({ children }) => {
     await fetchData();
   };
 
+  const updateBranch = async (branchMongoId, updates) => {
+    const response = await fetch(`${API_BASE}/branches/${branchMongoId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      let message = 'Failed to update branch';
+      try {
+        const parsed = errText ? JSON.parse(errText) : {};
+        message = parsed.message || message;
+      } catch {
+        if (errText) message = errText;
+      }
+      throw new Error(message);
+    }
+    await fetchData();
+  };
+
+  const deleteBranch = async (branchMongoId) => {
+    const response = await fetch(`${API_BASE}/branches/${branchMongoId}`, {
+      method: 'DELETE'
+    });
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      let message = 'Failed to delete branch';
+      try {
+        const parsed = errText ? JSON.parse(errText) : {};
+        message = parsed.message || message;
+      } catch {
+        if (errText) message = errText;
+      }
+      throw new Error(message);
+    }
+    await fetchData();
+  };
+
   const simulateDay = () => {
     console.log('Simulating day locally...');
   };
@@ -173,6 +211,8 @@ export const InventoryProvider = ({ children }) => {
       updateInventoryItem,
       addInventoryItem,
       addBranch,
+      updateBranch,
+      deleteBranch,
       simulateDay,
       refreshData: fetchData,
       loading,
